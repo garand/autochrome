@@ -50,13 +50,26 @@ Only the small preview thumbnails in `public/samples/` are in the repo.
 Settings are project-wide with per-photo overrides: a photo stores only the keys that differ from the shoot.
 Crop, rotation and masks are always per photo.
 
-## Looks, LUTs and presets
+## Styles
 
-The built-in looks are original emulations written for this app, named for the film stocks and editing
-styles they are modelled on. They are not the manufacturers' or any preset vendor's files. To use real
-ones, put `.cube` files in `./luts` (or use Presets > Import). Lightroom `.xmp` presets can be imported
-too; the common sliders, HSL, colour grading and tone curve are mapped across, which gets close but is not
-an exact match because the two engines differ.
+A style is a starting point with two optional parts: a colour (a film emulation or LUT) and a finish (changes to
+the sliders, such as +14 contrast and +22 vignette). Styles sit underneath your own sliders, so switching styles
+keeps your edits and every slider reads 0 at the style's result. One Strength control scales the whole style.
+Recipes combine a colour with a finish; the film colours are colour only; Yours holds styles you save (the current
+result, folded into one style) or import. See `src/engine/styles.ts`.
+
+The built-in film colours are original emulations written for this app, named for the film stocks and editing
+styles they are modelled on. They are not the manufacturers' or any preset vendor's files. To use real ones, put
+`.cube` files in `./luts` or import them from the Style section. Lightroom `.xmp` presets import as styles too;
+the common sliders, HSL, colour grading and tone curve are mapped across, which gets close but is not an exact
+match because the two engines differ.
+
+## White balance
+
+For raw files, Temp and Tint read in Kelvin and absolute tint. Each raw's as-shot multipliers and camera colour
+matrix give the light the camera treated as neutral, and changes are made in camera space the way a raw converter
+does (`src/engine/wb.ts`). Values are stored relative to as shot, so a shoot-wide change shifts every photo by the
+same perceived amount. JPEGs keep a relative scale.
 
 ## Known limits
 

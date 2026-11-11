@@ -52,7 +52,7 @@ function CullDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-const KEYS: [string, string][] = [['← →', 'Previous / next photo'], ['P · X · U', 'Pick · reject · unflag'], ['1–5 · 0', 'Star rating · clear'], ['6–9', 'Colour label'], ['S', 'Switch all photos / this photo'], ['L', 'Style browser'], ['G', 'Grid view'], ['Z', 'Fit / 100%'], ['\\', 'Before (hold)'], ['J', 'Clipping warnings'], ['R', 'Crop'], ['W', 'White balance picker'], ['M · ⇧M', 'Linear · radial mask'], ['O', 'Mask overlay'], ['⌘[ · ⌘]', 'Rotate'], ['⌘Z · ⇧⌘Z', 'Undo · redo'], ['⌘C · ⌘V', 'Copy · paste adjustments'], ['⌘A', 'Select all'], ['⌘E', 'Export'], ['Tab', 'Hide panels'], ['scroll · drag', 'Zoom · pan'], ['double-click', 'Reset a slider']]
+const KEYS: [string, string][] = [['← →', 'Previous / next photo'], ['P · X · U', 'Pick · reject · unflag'], ['1–5 · 0', 'Star rating · clear'], ['6–9', 'Colour label'], ['S', 'Switch all photos / this photo'], ['L', 'Browse styles'], ['G', 'Grid view'], ['Z', 'Fit / 100%'], ['\\', 'Before (hold)'], ['J', 'Clipping warnings'], ['R', 'Crop'], ['W', 'White balance picker'], ['M · ⇧M', 'Linear · radial mask'], ['O', 'Mask overlay'], ['⌘[ · ⌘]', 'Rotate'], ['⌘Z · ⇧⌘Z', 'Undo · redo'], ['⌘C · ⌘V', 'Copy · paste adjustments'], ['⌘A', 'Select all'], ['⌘E', 'Export'], ['Tab', 'Hide panels'], ['scroll · drag', 'Zoom · pan'], ['double-click', 'Reset a slider']]
 
 export default function Editor() {
   useTopic('view', 'status'); const [modal, setModal] = useState<null | 'export' | 'cull' | 'keys'>(null), [ready, setReady] = useState(false), [err, setErr] = useState('')
@@ -76,7 +76,7 @@ export default function Editor() {
       else if (k === '\\') A.toggle('before', true); else if (l === 'z') A.setZoom(S.zoom === 'fit' ? 1 : 'fit'); else if (l === 'g') A.toggle('grid'); else if (l === 'j') A.toggle('clip'); else if (l === 'o') A.toggle('showMask')
       else if (l === 'r') A.setTool(S.tool === 'crop' ? 'select' : 'crop'); else if (l === 'w') A.setTool(S.tool === 'wb' ? 'select' : 'wb'); else if (l === 'v') A.setTool('select')
       else if (l === 'm') { const want = e.shiftKey ? 'radial' : 'linear'; A.setTool(S.tool === want ? 'select' : want) }
-      else if (l === 's') A.setScope(S.scope === 'project' ? 'photo' : 'project'); else if (l === 'l' && S.cur) { S.browser = 'looks'; A.emit('view') }
+      else if (l === 's') A.setScope(S.scope === 'project' ? 'photo' : 'project'); else if (l === 'l' && S.cur) { S.browser = 'styles'; A.emit('view') }
       else if (k === 'Tab') { e.preventDefault(); A.toggle('panels') } else if (k === '?') setModal('keys')
       else if ((k === 'Delete' || k === 'Backspace') && S.maskSel >= 0 && (S.tool === 'linear' || S.tool === 'radial')) A.removeMask(S.maskSel)
       else if (k === 'Escape' || k === 'Enter') { if (S.tool !== 'select') A.setTool('select'); else if (S.grid) A.toggle('grid', false) }

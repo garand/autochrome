@@ -38,7 +38,8 @@ export function fixCrop(g, W, H) { g.w = clamp(g.w, 0.03, 1); g.h = clamp(g.h, 0
 export const HSL = [['red', 0, 22, '#e5484d'], ['orange', 30, 16, '#f08c2e'], ['yellow', 58, 18, '#f2d43d'], ['green', 115, 40, '#46a758'], ['aqua', 180, 28, '#3cc8c8'], ['blue', 235, 32, '#3e7bfa'], ['purple', 280, 24, '#8e4ec6'], ['magenta', 325, 24, '#d6409f']];
 export const ID_CURVE = [[0, 0], [1, 1]];
 export const DEF = {
-  look: 'none', lookAmount: 100, bw: 0,
+  style: 'none', styleAmount: 100,   // see styles.ts
+  look: 'none', lookAmount: 100, bw: 0,   // look / lookAmount are filled in by resolve() for the renderer
   temp: 0, tint: 0, exposure: 0, contrast: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0,
   texture: 0, clarity: 0, dehaze: 0, vibrance: 0, saturation: 0,
   curve: { m: ID_CURVE, r: ID_CURVE, g: ID_CURVE, b: ID_CURVE },
@@ -47,7 +48,7 @@ export const DEF = {
 };
 for (const [n] of HSL) { DEF['h_' + n] = 0; DEF['s_' + n] = 0; DEF['l_' + n] = 0; }
 export const KEYS = {
-  look: ['look', 'lookAmount'],
+  style: ['style', 'styleAmount'],
   basic: ['bw', 'temp', 'tint', 'exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks', 'texture', 'clarity', 'dehaze', 'vibrance', 'saturation'],
   curve: ['curve'], mixer: HSL.flatMap(([n]) => ['h_' + n, 's_' + n, 'l_' + n]),
   grade: ['gShHue', 'gShSat', 'gMidHue', 'gMidSat', 'gHiHue', 'gHiSat', 'gBalance'],

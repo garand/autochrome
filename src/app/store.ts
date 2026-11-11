@@ -2,11 +2,12 @@
    React components subscribe to topics with useTopic() and call the functions exported as A. */
 import { useSyncExternalStore } from 'react'
 import wasmUrl from 'libraw-wasm-nothread/dist/libraw.wasm?url'
-import { DEF, FULL, HSL, IMG_EXT, KEYS, LOOKS, MASK_ADJ, PRESETS, RAW_EXT, clamp, clone, cropValid, eq, extOf, fixCrop, half2f, lutCache, mapply, mgl, minv, parseCube, stem, texMatrix } from '../engine/core'
+import { DEF, FULL, HSL, IMG_EXT, KEYS, LOOKS, MASK_ADJ, RAW_EXT, clamp, clone, cropValid, eq, extOf, fixCrop, half2f, lutCache, mapply, mgl, minv, parseCube, stem, texMatrix } from '../engine/core'
 import { Renderer, type GpuImage } from '../engine/gl'
 import { checkFaces } from '../engine/faces'
 import type { Sample } from '../samples'
 import { SRGB_SHOT, asShot, neutralise, type WbState } from '../engine/wb'
+import { bake, fromSettings, migrate, resolve, setUserStyles, styleById, userStyles, type Style } from '../engine/styles'
 
 /* ------------------------------------------------------------------ topics */
 const versions: Record<string, number> = {}, listeners: Record<string, Set<() => void>> = {}
@@ -32,13 +33,15 @@ export const S = {
   proj: { settings: clone(DEF) as Record<string, any>, autoExposure: true, autoWB: false },
   tool: 'select' as 'select' | 'crop' | 'wb' | 'linear' | 'radial', zoom: 'fit' as 'fit' | number, pan: { x: 0.5, y: 0.5 },
   before: false, grid: false, clip: false, showMask: false, maskSel: -1, hslSel: 'orange', curveCh: 'm', panels: true, filter: 'all',
-  preview: null as null | { replace?: boolean; s: any }, browser: null as null | 'looks' | 'presets', modal: null as null | string,
+  preview: null as null | { s: any }, browser: null as null | 'styles', modal: null as null | string,
   history: [] as { label: string; json: string; key?: string; at: number }[], hIdx: -1, clipboard: null as any,
-  analysed: 0, checked: 0, exporting: false, busy: false, lay: null as any, flash: '', userPresets: {} as Record<string, any>, lutDir: '',
+  analysed: 0, checked: 0, exporting: false, busy: false, lay: null as any, flash: '', lutDir: '',
 }
 export const cur = () => (S.cur ? S.byName.get(S.cur) : undefined)
-export const eff = (p?: Photo) => ({ ...S.proj.settings, ...(p ? p.ov : {}) })
-export const curS = () => (S.scope === 'photo' ? eff(cur()) : S.proj.settings)
+/* your settings for a photo (shoot values plus its own overrides), and the plain values the renderer uses */
+export const settingsOf = (p?: Photo | null) => ({ ...S.proj.settings, ...(p ? p.ov : {}) })
+export const eff = (p?: Photo | null) => resolve(settingsOf(p))
+export const curS = () => (S.scope === 'photo' ? settingsOf(cur()) : S.proj.settings)
 const targets = () => [...S.multi].map(n => S.byName.get(n)!).filter(Boolean)
 const blankPhoto = () => ({ ov: {}, crop: null, orient: { rot: 0, flip: false }, masks: [], flag: 0, rating: 0, label: 0 })
 export const dimsOf = (p: Photo) => { const d = p.dim || (p.t ? [p.t.w, p.t.h] : [3, 2]); return p.orient.rot & 1 ? [d[1], d[0]] : d }
@@ -74,10 +77,10 @@ function projectData() {
 }
 function applyProject(d: any) {
   if (!d || !d.photos) return
-  S.proj.settings = { ...clone(DEF), ...d.settings }; S.proj.autoExposure = d.autoExposure !== false; S.proj.autoWB = !!d.autoWB
+  S.proj.settings = { ...clone(DEF), ...migrate(d.settings) }; S.proj.autoExposure = d.autoExposure !== false; S.proj.autoWB = !!d.autoWB
   for (const p of S.photos) {
     const s = d.photos[p.name]; if (!s) continue
-    p.ov = s.ov || {}; p.crop = s.crop || null; p.orient = s.orient || { rot: 0, flip: false }; p.masks = s.masks || []; p.flag = s.flag || 0; p.rating = s.rating || 0; p.label = s.label || 0
+    p.ov = migrate(s.ov) || {}; p.crop = s.crop || null; p.orient = s.orient || { rot: 0, flip: false }; p.masks = s.masks || []; p.flag = s.flag || 0; p.rating = s.rating || 0; p.label = s.label || 0
     if (s.stats && !p.stats) { p.stats = s.stats; p.meta = s.meta || p.meta; p.dim = s.dim || p.dim } if (s.cull && !p.cull) p.cull = s.cull
   }
 }
@@ -107,20 +110,37 @@ export function clearOv(k: string) { for (const p of targets()) { delete p.ov[k]
 export const isOv = (k: string) => { const p = cur(); return !!p && k in p.ov }
 export const changedCount = (keys: string[]) => { const s = curS(); return keys.filter(k => !eq(s[k], DEF[k])).length }
 export function setScope(s: 'project' | 'photo') { S.scope = s; emit('panel') }
-export function applyPreset(name: string, preset: any) {
-  if (S.scope === 'photo') for (const p of targets()) { p.ov = {}; for (const k in DEF) { const v = k in preset ? preset[k] : DEF[k]; if (!eq(v, S.proj.settings[k])) p.ov[k] = clone(v) } markThumb(p) }
-  else { S.proj.settings = { ...clone(DEF), ...clone(preset) }; for (const p of S.photos) markThumb(p) }
-  S.preview = null; emit('panel', 'film'); requestRender(); commit('Preset: ' + name)
+/* ------------------------------------------------------------------ styles (see engine/styles.ts) */
+export function setStyle(id: string) {
+  const st = styleById(id); setVal('style', st ? st.id : 'none'); if (!curS().styleAmount) setVal('styleAmount', 100)
+  S.preview = null; emit('film'); commit('Style: ' + (st?.name || 'None'), 'style')
 }
-export const allPresets = () => ({ ...PRESETS, ...S.userPresets })
-export function savePreset(name: string) { const s = curS(), d: any = {}; for (const k in DEF) if (!eq(s[k], DEF[k])) d[k] = clone(s[k]); S.userPresets[name] = d; localStorage.setItem('autochrome:presets', JSON.stringify(S.userPresets)); emit('left') }
-export function deletePreset(name: string) { delete S.userPresets[name]; localStorage.setItem('autochrome:presets', JSON.stringify(S.userPresets)); emit('left') }
+const storeStyles = () => { try { localStorage.setItem('autochrome:styles', JSON.stringify(userStyles())) } catch {} }
+/* save what you see as a style of your own; the photo does not change because the sliders are folded into it */
+export function saveStyle(name: string) {
+  const st = bake(name, curS()); setUserStyles([...userStyles().filter(s => s.id !== st.id), st]); storeStyles()
+  const fresh = { ...clone(DEF), style: st.id, styleAmount: 100 }
+  if (S.scope === 'photo') for (const p of targets()) { p.ov = {}; for (const k in fresh) if (!eq(fresh[k], S.proj.settings[k])) p.ov[k] = clone(fresh[k]); markThumb(p) }
+  else { S.proj.settings = fresh; for (const p of S.photos) markThumb(p) }
+  emit('left', 'panel', 'film'); requestRender(); commit('Save style ' + name); flash(`Saved style “${name}”`)
+}
+export function deleteStyle(id: string) {
+  setUserStyles(userStyles().filter(s => s.id !== id)); storeStyles()
+  if (S.proj.settings.style === id) S.proj.settings.style = 'none'; for (const p of S.photos) if (p.ov.style === id) delete p.ov.style
+  for (const p of S.photos) markThumb(p); emit('panel', 'film'); requestRender()
+}
+function loadStyles() {
+  let list: Style[] = []
+  try { list = JSON.parse(localStorage.getItem('autochrome:styles') || '[]') } catch {}
+  if (!list.length) try { const old = JSON.parse(localStorage.getItem('autochrome:presets') || '{}'); list = Object.entries(old).map(([n, s]: [string, any]) => fromSettings(n, s)) } catch {}
+  setUserStyles(list)
+}
 export function setPreview(pv: typeof S.preview) { if (S.preview === pv) return; S.preview = pv; requestRender() }
 export function copySettings() { const p = cur(); if (p) { S.clipboard = clone({ ov: p.ov, crop: p.crop, masks: p.masks }); flash('Copied adjustments') } }
 export function pasteSettings(withCrop = false) { if (!S.clipboard) return; for (const p of targets()) { p.ov = clone(S.clipboard.ov); p.masks = clone(S.clipboard.masks); if (withCrop) p.crop = clone(S.clipboard.crop); markThumb(p) } emit('panel', 'film'); requestRender(); commit('Paste adjustments') }
 export function syncFromCurrent() { const p = cur(); if (!p) return; for (const q of targets()) if (q !== p) { q.ov = clone(p.ov); q.masks = clone(p.masks); markThumb(q) } emit('film'); commit(`Sync to ${S.multi.size - 1} photos`); flash(`Synced to ${S.multi.size - 1} photos`) }
 export function clearPhoto() { for (const p of targets()) { Object.assign(p, clone({ ov: {}, masks: [], crop: null, orient: { rot: 0, flip: false } })); markThumb(p) } S.maskSel = -1; emit('panel', 'film', 'view'); requestRender(); commit('Reset photo') }
-export function promote() { const p = cur(); if (!p) return; S.proj.settings = clone(eff(p)); p.ov = {}; for (const q of S.photos) markThumb(q); emit('panel', 'film'); requestRender(); commit('Make shoot look') }
+export function promote() { const p = cur(); if (!p) return; S.proj.settings = clone(settingsOf(p)); p.ov = {}; for (const q of S.photos) markThumb(q); emit('panel', 'film'); requestRender(); commit('Make shoot look') }
 export function setAuto(key: 'autoExposure' | 'autoWB', on: boolean) { S.proj[key] = on; for (const p of S.photos) markThumb(p); emit('panel'); requestRender(); commit(key === 'autoExposure' ? 'Auto exposure' : 'Auto white balance') }
 export function flash(msg: string) { S.flash = msg; emit('status'); setTimeout(() => { if (S.flash === msg) { S.flash = ''; emit('status') } }, 3500) }
 
@@ -265,7 +285,7 @@ export const screenToUv = (x: number, y: number) => mapply(S.lay.M, x / S.lay.cs
 export const uvToScreen = (u: number, v: number) => { const [a, b] = mapply(S.lay.Minv, u, v); return [a * S.lay.cssW, b * S.lay.cssH] }
 function viewSettings(p: Photo) {
   if (S.before) return { ...clone(DEF), sharpen: 0 }
-  if (S.preview) return S.preview.replace ? { ...clone(DEF), ...S.preview.s } : { ...eff(p), ...S.preview.s }
+  if (S.preview) return resolve({ ...settingsOf(p), ...S.preview.s })
   return eff(p)
 }
 function render() {
@@ -401,7 +421,7 @@ export function renderTiles(tiles: { canvas: HTMLCanvasElement; s: any }[], heig
   const p = cur(); if (!p) return; const src = p.mid || (p.t && { ...p.t }); if (!src) return
   const g = p.crop || FULL, odd = p.orient.rot & 1, W = odd ? src.h : src.w, Hh = odd ? src.w : src.h, img = work.upload(src.data, src.w, src.h, src.blur)
   const asp = (g.w * W) / (g.h * Hh), Wd = Math.round(height * asp), m = mgl(texMatrix(g, W, Hh, p.orient)), auto = autoFor(p)
-  for (const t of tiles) { work.draw(img, t.s, { m, outW: Wd, outH: height, auto, faces: p.stats?.faces, masks: p.masks, quick: true }); t.canvas.width = Wd; t.canvas.height = height; t.canvas.getContext('2d')!.drawImage(work.canvas, 0, 0) }
+  for (const t of tiles) { work.draw(img, resolve(t.s), { m, outW: Wd, outH: height, auto, faces: p.stats?.faces, masks: p.masks, quick: true }); t.canvas.width = Wd; t.canvas.height = height; t.canvas.getContext('2d')!.drawImage(work.canvas, 0, 0) }
   work.free(img)
 }
 
@@ -530,10 +550,10 @@ export function parseXmp(text: string) {
 export async function importFiles(files: File[]) {
   let n = 0
   for (const f of files) {
-    if (/\.cube$/i.test(f.name)) { try { const id = addCube(f.name, await f.text()); setVal('look', id); commit('Look: ' + f.name); n++ } catch (e: any) { flash(e.message) } }
-    else if (/\.(xmp|lrtemplate)$/i.test(f.name)) { const d = parseXmp(await f.text()); if (Object.keys(d).length) { S.userPresets[stem(f.name)] = d; n++ } }
+    if (/\.cube$/i.test(f.name)) { try { const id = addCube(f.name, await f.text()); setVal('style', id); commit('Style: ' + f.name); n++ } catch (e: any) { flash(e.message) } }
+    else if (/\.(xmp|lrtemplate)$/i.test(f.name)) { const d = parseXmp(await f.text()); if (Object.keys(d).length) { const st = fromSettings(stem(f.name), d); setUserStyles([...userStyles().filter(s => s.id !== st.id), st]); n++ } }
   }
-  localStorage.setItem('autochrome:presets', JSON.stringify(S.userPresets)); emit('left', 'panel'); if (n) flash(`Imported ${n} file${n > 1 ? 's' : ''}`)
+  storeStyles(); emit('left', 'panel'); if (n) flash(`Imported ${n} file${n > 1 ? 's' : ''}`)
 }
 
 /* ------------------------------------------------------------------ export */
@@ -584,10 +604,10 @@ export const stopExport = () => { S.exporting = false }
 let booted: Promise<void> | null = null
 export function boot() {
   return (booted ||= (async () => {
-    try { S.userPresets = JSON.parse(localStorage.getItem('autochrome:presets') || '{}') } catch {}
+    loadStyles()
     await pool.init(); loadServerLuts()
     window.addEventListener('beforeunload', () => { saveNow() })
     ;(window as any).__rs = { S, texCache, select, setVal, autoFor, eff, runExport, autoCull }
   })())
 }
-export { KEYS, DEF, LOOKS, PRESETS }
+export { KEYS, DEF, LOOKS }

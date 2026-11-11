@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import * as A from '../app/store'
 import { DEF, KEYS, S, changedCount, clearOv, commit, cur, curS, isOv, resetKeys, setVal, useTopic } from '../app/store'
-import { HSL, ID_CURVE, LOOKS, clamp, clone, curveLut, eq } from '../engine/core'
-import { LOOK_CATS } from '../engine/looks'
+import { HSL, ID_CURVE, clamp, clone, curveLut, eq } from '../engine/core'
+import { RECIPES, YOURS, allStyles, styleById, styleCats } from '../engine/styles'
 import * as WB from '../engine/wb'
 import { Icon, IconBtn, Section, Seg, Slider } from './widgets'
 
@@ -54,21 +54,39 @@ function WhiteBalance() {
   </>
 }
 
-function Looks() {
-  const s = curS(), [cat, setCat] = useState(() => LOOKS.find(l => l.id === s.look)?.cat || LOOK_CATS[0]), cats = [...LOOK_CATS, ...(LOOKS.some(l => l.cat === 'My LUTs') ? ['My LUTs'] : [])]
-  const active = LOOKS.find(l => l.id === s.look)
-  const pick = (l: any) => { setVal('look', l.id); commit('Look: ' + l.name) }
+/* Styles: one library for film colours and finishing recipes. A style sits under your sliders (see engine/styles.ts). */
+function Styles() {
+  useTopic('film'); const p = cur(), s = curS(), active = styleById(s.style), file = useRef<HTMLInputElement>(null)
+  const cats = styleCats(), [cat, setCat] = useState(() => active?.cat || RECIPES), [naming, setNaming] = useState(false), [name, setName] = useState('')
+  const shown = cats.includes(cat) ? cat : RECIPES, list = [allStyles()[0], ...allStyles().filter(st => st.cat === shown)]
+  const refs = useRef(new Map<string, HTMLCanvasElement>()), base = A.settingsOf(p), key = JSON.stringify(base)
+  const amount = s.styleAmount || 100
+  useEffect(() => {   // small previews of this photo in each style, redrawn shortly after the photo or your sliders change
+    const t = setTimeout(() => A.renderTiles(list.map(st => ({ canvas: refs.current.get(st.id)!, s: { ...base, style: st.id, styleAmount: amount } })).filter(x => x.canvas), 120), 160)
+    return () => clearTimeout(t)
+  }, [shown, p?.name, p?.mid, p?.t, key, list.length])
   return (
-    <Section {...sec('look', 'Look')} extra={<span className="hint">{active && active.id !== 'none' ? active.name : ''}</span>}>
+    <Section {...sec('style', 'Style')} extra={<>
+      <span className="hint">{active ? active.name : ''}</span>
+      <button className="mini" title="Save what you see as your own style" onClick={e => { e.stopPropagation(); setNaming(true) }}><Icon name="plus" size={13} /></button>
+      <button className="mini" title="See this photo in every style (L)" onClick={e => { e.stopPropagation(); S.browser = 'styles'; A.emit('view') }}><Icon name="grid" size={13} /></button></>}>
+      {naming && <form className="inline" onSubmit={e => { e.preventDefault(); if (name.trim()) A.saveStyle(name.trim()); setNaming(false); setName('') }}>
+        <input autoFocus placeholder="Name your style" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') setNaming(false) }} /><button className="btn primary">Save</button></form>}
       <div className="lookbar">
-        <select className="sel grow" value={cat} onChange={e => setCat(e.target.value)} aria-label="Look category">{cats.map(c => <option key={c}>{c}</option>)}</select>
-        <button className="btn" onClick={() => { S.browser = 'looks'; A.emit('view') }} title="See this photo in every look (L)"><Icon name="grid" size={13} /> Browse</button>
+        <select className="sel grow" value={shown} onChange={e => setCat(e.target.value)} aria-label="Style category">{cats.map(c => <option key={c}>{c}</option>)}</select>
+        <button className="btn" onClick={() => file.current!.click()} title="Lightroom .xmp presets and .cube LUTs become styles under Yours">Import…</button>
+        <input ref={file} type="file" hidden multiple accept=".xmp,.cube,.lrtemplate" onChange={e => { A.importFiles([...(e.target.files || [])]); e.target.value = ''; setCat(YOURS) }} />
       </div>
-      <div className="looks" onMouseLeave={() => A.setPreview(null)}>
-        <button className={'look' + (s.look === 'none' ? ' on' : '')} onMouseEnter={() => A.setPreview({ s: { look: 'none' } })} onClick={() => pick(LOOKS[0])}><i style={{ background: '#777' }} />None</button>
-        {LOOKS.filter(l => l.cat === cat).map(l => <button key={l.id} className={'look' + (s.look === l.id ? ' on' : '')} title={l.sub} onMouseEnter={() => A.setPreview({ s: { look: l.id, lookAmount: Math.max(s.lookAmount, 100) } })} onClick={() => pick(l)}><i style={{ background: l.sw }} />{l.name.replace(/ style$/, '')}</button>)}
+      <div className="styletiles" onMouseLeave={() => A.setPreview(null)}>
+        {list.map(st => <button key={st.id} className={'stile' + ((active?.id ?? 'none') === st.id ? ' on' : '')} title={[st.name, st.sub].filter(Boolean).join(' · ')}
+          onMouseEnter={() => A.setPreview({ s: { style: st.id, styleAmount: amount } })} onClick={() => A.setStyle(st.id)}>
+          <canvas ref={el => { if (el) refs.current.set(st.id, el); else refs.current.delete(st.id) }} />
+          <span>{st.name}</span>
+          {st.user && <i className="del" title="Delete this style" onClick={e => { e.stopPropagation(); A.deleteStyle(st.id) }}><Icon name="reject" size={10} /></i>}
+        </button>)}
       </div>
-      <Adj k="lookAmount" label="Amount" min={0} max={100} />
+      {active && <Adj k="styleAmount" label="Strength" min={0} max={100} />}
+      <p className="note">{active?.sub ? <><b className="stylesub">{active.sub.replace(/[.…]+$/, '')}</b><br /></> : null}A style sits under your sliders, so switching styles keeps your own edits.</p>
     </Section>
   )
 }
@@ -196,9 +214,9 @@ export function Right() {
         <Section id="auto" title="Auto">
           <label className="chk big"><input type="checkbox" checked={S.proj.autoExposure} onChange={e => A.setAuto('autoExposure', e.target.checked)} /><span>Balance exposure across the shoot<small>Meters every photo for its faces, or the scene, so the set matches. Exposure then works as an offset.</small></span></label>
           <label className="chk big"><input type="checkbox" checked={S.proj.autoWB} onChange={e => A.setAuto('autoWB', e.target.checked)} /><span>Match skin tones<small>Evens white balance between sun and shade using the faces. Tuned on lighter skin; check it.</small></span></label>
-          <p className="note">{!n ? 'Open a folder to begin.' : S.analysed < n ? `Metering ${S.analysed} of ${n}…` : `${n} photos metered` + (S.checked < n ? ` · checking faces ${S.checked}/${n}` : ' · faces checked')}</p>
+          <p className="note">{!n ? 'Open a folder to begin.' : S.analysed < n ? `Metering ${S.analysed} of ${n}…` : `${n} photo${n === 1 ? '' : 's'} metered` + (S.checked < n ? ` · checking faces ${S.checked}/${n}` : ' · faces checked')}</p>
         </Section>
-        <Looks />
+        <Styles />
         <Section {...sec('basic', 'Basic')}>
           <div className="sub"><span>Treatment</span><Seg value={s.bw ? 1 : 0} options={[[0, 'Colour'], [1, 'Black & white']]} onChange={v => { setVal('bw', v); commit(v ? 'Black & white' : 'Colour') }} /></div>
           <WhiteBalance />

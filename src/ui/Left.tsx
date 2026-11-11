@@ -1,32 +1,7 @@
-import { useRef, useState } from 'react'
 import * as A from '../app/store'
-import { FOCUS, PRESETS, S, cur, dimsOf, useTopic } from '../app/store'
+import { FOCUS, S, cur, dimsOf, useTopic } from '../app/store'
 import { LICENSE_URL } from '../samples'
-import { Icon, Section } from './widgets'
-
-function Presets() {
-  const all = A.allPresets(), file = useRef<HTMLInputElement>(null), [naming, setNaming] = useState(false), [name, setName] = useState('')
-  const row = (n: string, user: boolean) => (
-    <li key={n} onMouseEnter={() => A.setPreview({ replace: true, s: all[n] })} onClick={() => A.applyPreset(n, all[n])}>
-      <span>{n}</span>{user && <button className="mini" title="Delete preset" onClick={e => { e.stopPropagation(); A.deletePreset(n) }}><Icon name="trash" size={12} /></button>}
-    </li>)
-  return (
-    <Section id="presets" title="Presets" extra={<>
-      <button className="mini" title="See this photo in every preset" onClick={e => { e.stopPropagation(); S.browser = 'presets'; A.emit('view') }}><Icon name="grid" size={13} /></button>
-      <button className="mini" title="Save the current adjustments as a preset" onClick={e => { e.stopPropagation(); setNaming(true) }}><Icon name="plus" size={13} /></button></>}>
-      {naming && <form className="inline" onSubmit={e => { e.preventDefault(); if (name.trim()) A.savePreset(name.trim()); setNaming(false); setName('') }}>
-        <input autoFocus placeholder="Preset name" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') setNaming(false) }} /><button className="btn primary">Save</button></form>}
-      <ul className="list" onMouseLeave={() => A.setPreview(null)}>
-        {Object.keys(PRESETS).map(n => row(n, false))}
-        {Object.keys(S.userPresets).length > 0 && <li className="head">Yours</li>}
-        {Object.keys(S.userPresets).map(n => row(n, true))}
-      </ul>
-      <div className="btnrow"><button className="btn" onClick={() => file.current!.click()} title="Lightroom .xmp presets and .cube LUTs">Import…</button></div>
-      <input ref={file} type="file" hidden multiple accept=".xmp,.cube,.lrtemplate" onChange={e => { A.importFiles([...(e.target.files || [])]); e.target.value = '' }} />
-      <p className="note">Hover to preview, click to apply. A preset replaces the adjustments for {S.scope === 'project' ? 'the whole shoot' : 'the selected photos'}.</p>
-    </Section>
-  )
-}
+import { Section } from './widgets'
 
 function History() {
   return (
@@ -65,5 +40,5 @@ function Info() {
 
 export function Left() {
   useTopic('left', 'history', 'panel', 'film')
-  return <aside id="left"><div className="scroll"><Presets /><Info /><History /></div></aside>
+  return <aside id="left"><div className="scroll"><Info /><History /></div></aside>
 }
