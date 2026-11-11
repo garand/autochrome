@@ -32,7 +32,7 @@ export function Film({ onAutoCull }: { onAutoCull: () => void }) {
     <footer id="film">
       <div id="stripbar">
         <select className="sel" value={S.filter} onChange={e => A.setFilter(e.target.value)} aria-label="Filter photos">{FILTERS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-        <span className="count">{n ? `${list.length === n ? n : `${list.length} of ${n}`} photos · ${picks} picked · ${rej} rejected${S.multi.size > 1 ? ` · ${S.multi.size} selected` : ''}` : ''}</span>
+        <span className="count">{n ? `${list.length === n ? n : `${list.length} of ${n}`} photo${n === 1 ? "" : "s"} · ${picks} picked · ${rej} rejected${S.multi.size > 1 ? ` · ${S.multi.size} selected` : ''}` : ''}</span>
         <span className="grow" />
         {n > 0 && <span className="count">{S.analysed < n ? `Metering ${S.analysed}/${n}` : S.checked < n ? `Checking faces ${S.checked}/${n}` : ''}</span>}
         <button className="btn" disabled={!n} onClick={onAutoCull} title="Pick the best frame of each burst using eyes, gaze and focus">Auto cull…</button>

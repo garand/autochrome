@@ -29,7 +29,7 @@ function ExportDialog({ onClose }: { onClose: () => void }) {
         <label>File suffix</label><input className="textbox" value={o.suffix} placeholder="none" onChange={e => set('suffix', e.target.value.replace(/[\\/]/g, ''))} onKeyDown={e => e.stopPropagation()} />
       </div>
       <p className="note">Each photo is developed again from its raw file at full resolution, with its crop, masks and adjustments.</p>
-      {(state.run || state.msg) && <><div className="bar"><i style={{ width: (state.n ? state.i / state.n * 100 : 0) + '%' }} /></div><p className="note">{state.run ? `${state.i} of ${state.n} · ${state.msg}` : state.msg}</p></>}
+      {(state.run || state.msg) && <><div className="bar"><i style={{ transform: `scaleX(${state.n ? state.i / state.n : 0})` }} /></div><p className="note">{state.run ? `${state.i} of ${state.n} · ${state.msg}` : state.msg}</p></>}
       <div className="acts">{state.run ? <button className="btn" onClick={A.stopExport}>Stop</button> : <button className="btn" onClick={onClose}>Close</button>}<button className="btn primary" disabled={state.run || !count} onClick={go}>Export {count} photo{count === 1 ? '' : 's'}</button></div>
     </Modal>
   )
@@ -93,9 +93,9 @@ export default function Editor() {
         <span className="grow" />
         {err && <span className="err">{err}</span>}
         {!ready && !err && <span className="hint">Starting the raw engine…</span>}
-        <IconBtn icon="undo" title="Undo (⌘Z)" onClick={A.undo} disabled={S.hIdx <= 0} /><IconBtn icon="redo" title="Redo (⇧⌘Z)" onClick={A.redo} disabled={S.hIdx >= S.history.length - 1} />
+        {has && <><IconBtn icon="undo" title="Undo (⌘Z)" onClick={A.undo} disabled={S.hIdx <= 0} /><IconBtn icon="redo" title="Redo (⇧⌘Z)" onClick={A.redo} disabled={S.hIdx >= S.history.length - 1} /></>}
         <IconBtn icon="help" title="Keyboard shortcuts (?)" onClick={() => setModal('keys')} />
-        <button className="btn primary" disabled={!has} onClick={() => setModal('export')}><Icon name="export" size={14} /> Export</button>
+        {has && <button className="btn primary" onClick={() => setModal('export')}><Icon name="export" size={14} /> Export</button>}
       </header>
       <Left />
       <main id="center"><Viewer /><Toolbar /></main>

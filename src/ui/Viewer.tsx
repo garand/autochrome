@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import * as A from '../app/store'
 import { S, cur, useTopic } from '../app/store'
 import { LABELS } from '../engine/core'
-import { Icon, IconBtn } from './widgets'
+import { PIXLS, SAMPLES, type Sample } from '../samples'
+import { Icon, IconBtn, Seg } from './widgets'
 
 /* crop rectangle, shown while the crop tool is active (the canvas then shows the whole frame) */
 function CropOverlay() {
@@ -61,31 +62,49 @@ function MaskOverlay() {
   )
 }
 
+/* Sample raws from the PIXLS.US Play Raw community, to try the app without your own photos.
+   Click one to open it on its own, or open the whole set to try shoot-wide editing and culling. */
+function Samples({ busy, run }: { busy: boolean; run: (f: () => Promise<unknown>) => void }) {
+  const [kind, setKind] = useState<Sample['kind']>('portrait'), list = SAMPLES.filter(s => s.kind === kind)
+  const label = kind === 'portrait' ? 'Sample portraits' : 'Sample landscapes'
+  return (
+    <div className="samples">
+      <div className="samplehead"><span>Or try a sample</span><Seg value={kind} options={[['portrait', 'Portraits'], ['landscape', 'Landscapes']]} onChange={setKind} /></div>
+      <div className="samplegrid">
+        {list.map(s => <button key={s.id} className="sample" disabled={busy} onClick={() => run(() => A.openSamples([s], s.title))} title={`${s.title} · ${s.author} · ${s.license}`}>
+          <img src={`/samples/${s.id}.jpg`} alt={s.title} width={s.thumb[0]} height={s.thumb[1]} loading="lazy" decoding="async" />
+        </button>)}
+      </div>
+      <div className="samplefoot">
+        <span>Raw files shared by photographers on <a href={PIXLS + '/c/processing/playraw'} target="_blank" rel="noopener noreferrer">PIXLS.US Play Raw</a> under Creative Commons. Each is credited in the Photo panel.</span>
+        <button className="btn" disabled={busy} onClick={() => run(() => A.openSamples(list, label))}>Open all {list.length}</button>
+      </div>
+    </div>
+  )
+}
+
+/* Everything is read by the browser from the viewer's own computer, so this works the same locally and on a server. */
 function OpenPanel() {
-  const [dir, setDir] = useState(''), [list, setList] = useState<any>(null), [err, setErr] = useState(''), [busy, setBusy] = useState(false), file = useRef<HTMLInputElement>(null)
-  const browse = (d: string) => A.listServerDir(d).then(l => { setList(l); setDir(l.dir); setErr('') }).catch(e => setErr(e.message))
-  useEffect(() => { let last = ''; try { last = localStorage.getItem('autochrome:lastDir') || '' } catch {} browse(last).catch(() => browse('')) }, [])
-  const open = (d = dir) => { setBusy(true); A.openServerDir(d).catch(e => { setErr(e.message); setBusy(false) }) }
+  const [err, setErr] = useState(''), [busy, setBusy] = useState(false), file = useRef<HTMLInputElement>(null), folder = useRef<HTMLInputElement>(null)
+  const run = (f: () => Promise<unknown>) => { setErr(''); setBusy(true); f().catch(e => setErr(e?.message || String(e))).finally(() => setBusy(false)) }
+  const chooseFolder = () => (A.canPickFolder() ? run(A.pickFolder) : folder.current!.click())
   return (
     <div className="open">
       <div className="card">
+        <span className="logo mark" />
         <h1>Open a shoot</h1>
-        <p>Point Autochrome at a folder on this computer, or drop a folder or files anywhere on this window. Photos are developed from the raw data on your machine.</p>
-        <form onSubmit={e => { e.preventDefault(); open() }} className="pathrow">
-          <input value={dir} onChange={e => setDir(e.target.value)} onKeyDown={e => e.stopPropagation()} placeholder="/Users/you/Pictures/shoot" spellCheck={false} aria-label="Folder path" />
-          <button className="btn" type="button" onClick={() => browse(dir)}>Go</button><button className="btn primary" disabled={busy}>{busy ? 'Opening…' : 'Open folder'}</button>
-        </form>
-        {err && <p className="err">{err}</p>}
-        {list && <ul className="dirs">
-          {list.parent && <li onClick={() => browse(list.parent)}><Icon name="folder" size={14} /><span>..</span></li>}
-          {list.dirs.map((d: string) => <li key={d} onClick={() => browse(list.dir + '/' + d)} onDoubleClick={() => open(list.dir + '/' + d)}><Icon name="folder" size={14} /><span>{d}</span></li>)}
-          {!list.dirs.length && <li className="empty">No sub-folders</li>}
-        </ul>}
-        <div className="foot">
-          <span>{list ? (list.files.length ? `${list.files.length} photos in this folder${list.project ? ' · saved edits found' : ''}` : 'No photos directly in this folder') : ''}</span>
-          <button className="btn" onClick={() => file.current!.click()}>Add files instead…</button>
-          <input ref={file} type="file" multiple hidden onChange={e => { if (e.target.files?.length) A.addFiles(e.target.files); e.target.value = '' }} />
+        <p>Choose a folder of raw files or JPEGs, or drop one anywhere on this window. Photos are developed right here in your browser and never leave your computer.</p>
+        <div className="openacts">
+          <button className="btn primary big" disabled={busy} onClick={chooseFolder}><Icon name="folder" size={15} /> {busy ? 'Opening…' : 'Choose folder…'}</button>
+          <button className="btn big" disabled={busy} onClick={() => file.current!.click()}>Add files…</button>
         </div>
+        {err && <p className="err">{err}</p>}
+        <p className="note">{A.canPickFolder() ? 'Your edits are saved into the folder, and exports can go straight back into it.'
+          : !window.isSecureContext ? 'On this address, edits are saved in this browser and exports download as a .zip. Open Autochrome over https:// or localhost to save straight into the folder.'
+          : 'In this browser, edits are saved here and exports download as a .zip. Chrome, Edge and Arc can also save straight into the folder.'}</p>
+        <Samples busy={busy} run={run} />
+        <input ref={file} type="file" multiple hidden onChange={e => { if (e.target.files?.length) run(() => A.addFiles(e.target.files!)); e.target.value = '' }} />
+        <input ref={folder} type="file" hidden {...{ webkitdirectory: '' }} onChange={e => { if (e.target.files?.length) { const f = e.target.files; run(() => A.openFolderFiles(f)) } e.target.value = '' }} />
       </div>
     </div>
   )
@@ -93,15 +112,16 @@ function OpenPanel() {
 
 export function Toolbar() {
   useTopic('view', 'film', 'status'); const p = cur(), z = S.zoom, tool = (t: typeof S.tool) => () => A.setTool(S.tool === t ? 'select' : t)
+  const msg = S.flash || (S.busy ? 'Developing…' : S.tool === 'wb' ? 'Click something that should be neutral grey' : S.tool === 'linear' || S.tool === 'radial' ? 'Drag on the photo to place a gradient' : S.tool === 'crop' ? 'Drag the frame, Enter when done' : '')
   return (
     <div id="toolbar">
-      <div className="grp">
+      {!S.grid && <div className="grp">
         <IconBtn icon="hand" title="Pan and zoom (V)" on={S.tool === 'select'} onClick={() => A.setTool('select')} />
         <IconBtn icon="crop" title="Crop and straighten (R)" on={S.tool === 'crop'} onClick={tool('crop')} />
         <IconBtn icon="dropper" title="White balance picker (W)" on={S.tool === 'wb'} onClick={tool('wb')} />
         <IconBtn icon="linear" title="Linear gradient mask (M)" on={S.tool === 'linear'} onClick={tool('linear')} />
         <IconBtn icon="radial" title="Radial gradient mask (Shift+M)" on={S.tool === 'radial'} onClick={tool('radial')} />
-      </div>
+      </div>}
       <div className="grp">
         <IconBtn icon="flag" title="Pick (P)" on={p?.flag === 1} onClick={() => A.setFlag(1)} data-tone="ok" />
         <IconBtn icon="reject" title="Reject (X)" on={p?.flag === -1} onClick={() => A.setFlag(-1)} data-tone="bad" />
@@ -109,13 +129,16 @@ export function Toolbar() {
         <span className="labels">{LABELS.slice(1).map((c, i) => <button key={i} className={p?.label === i + 1 ? 'on' : ''} style={{ '--c': c } as any} title={`Colour label (${i + 6})`} onClick={() => A.setLabel(i + 1)} />)}</span>
       </div>
       <span className="grow" />
-      <span className="msg">{S.flash || (S.busy ? 'Developing…' : S.tool === 'wb' ? 'Click something that should be neutral grey' : S.tool === 'linear' || S.tool === 'radial' ? 'Drag on the photo to place a gradient' : S.tool === 'crop' ? 'Drag the frame, Enter when done' : '')}</span>
+      {/* keyed on the text so each new message fades in instead of swapping abruptly */}
+      {msg && <span className="msg" key={msg}>{msg}</span>}
       <div className="grp">
+        {!S.grid && <>
         <IconBtn icon="clip" title="Clipping warnings (J)" on={S.clip} onClick={() => A.toggle('clip')} />
         <IconBtn icon="compare" title="Hold to see the unedited photo (\)" on={S.before} onPointerDown={() => A.toggle('before', true)} onPointerUp={() => A.toggle('before', false)} onPointerLeave={() => S.before && A.toggle('before', false)} />
         <select className="sel" value={z === 'fit' ? 'fit' : [0.5, 1, 2].includes(z) ? String(z) : 'x'} onChange={e => A.setZoom(e.target.value === 'fit' ? 'fit' : +e.target.value)} title="Zoom (Z toggles fit and 100%)" aria-label="Zoom">
           <option value="fit">Fit</option><option value="0.5">50%</option><option value="1">100%</option><option value="2">200%</option>{z !== 'fit' && ![0.5, 1, 2].includes(z) && <option value="x">{Math.round(z * 100)}%</option>}
         </select>
+        </>}
         <IconBtn icon="grid" title="Grid view (G)" on={S.grid} onClick={() => A.toggle('grid')} />
         <IconBtn icon="panels" title="Hide or show the side panels (Tab)" on={!S.panels} onClick={() => A.toggle('panels')} />
       </div>

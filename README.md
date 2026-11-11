@@ -1,6 +1,6 @@
 # Autochrome
 
-A raw developer for whole shoots, built with TanStack Start (React + Vite) and served by a Node server.
+A raw developer for whole shoots that runs in the browser, built with TanStack Start (React + Vite).
 Open a folder, get the set balanced automatically, edit everything at once, override single photos, cull with
 face checks, export.
 
@@ -17,18 +17,24 @@ Use a Chromium browser (Chrome, Edge, Arc). The app needs WebGL2 and Web Workers
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AUTOCHROME_ROOT` | your home folder | The only tree the server will read from or write to |
 | `AUTOCHROME_LUTS` | `./luts` | Folder of `.cube` LUTs to list under Looks > My LUTs |
-| `AUTOCHROME_ALLOW_REMOTE` | unset | Set to `1` to accept requests that do not come from this machine |
+| `AUTOCHROME_SAMPLE_CACHE` | system temp folder | Where the server caches sample raws fetched from PIXLS.US |
 | `HOST`, `PORT` | `127.0.0.1`, `3000` | Where the production server listens |
 
-The server exists to reach your files: it lists a folder, streams the raw files to the browser, and writes
-exports and a `autochrome-project.json` next to the photos. It is meant to run on your own computer. It refuses
-paths outside `AUTOCHROME_ROOT` and, by default, requests from other hosts. Do not expose it to a network
-without putting authentication in front of it.
+Your photos never go to the server. Choose a folder (or drop one onto the window) and the browser reads the
+files from your own computer, so the app works the same whether it runs locally or on a host. In Chromium
+browsers the folder picker grants read/write access: edits are saved to an `autochrome-project.json` in the
+folder and exports can be written straight back into it. Other browsers open the folder read-only, keep edits
+in the browser and export a .zip. The server only serves the app and the shared LUT folder.
 
-You can also drop a folder or files onto the window; those are read by the browser directly and exported
-to the same folder (Chromium asks for permission) or as a zip.
+## Sample photos
+
+The open screen offers sample portraits and landscapes to try the app without your own files. They are raws shared
+by photographers on [PIXLS.US Play Raw](https://discuss.pixls.us/c/processing/playraw) under CC BY-SA 4.0 (one CC0),
+listed with credits in `src/samples.ts`; each photo's author and licence show in the Photo panel. Portraits are limited
+to staged shoots and self-portraits posted for others to edit. The raws are not stored here: `/api/sample` fetches a
+listed file from PIXLS.US the first time it is opened, caches it on disk and tells browsers to cache it for a year.
+Only the small preview thumbnails in `public/samples/` are in the repo.
 
 ## How it works
 
@@ -39,7 +45,7 @@ to the same folder (Chromium asks for permission) or as a zip.
 - `src/engine/faces.ts` runs Human (face mesh + iris) on the face crops for eyes-open / facing / gaze.
 - `src/engine/looks.ts` is the look library: procedurally generated 3D LUTs.
 - `src/app/store.ts` holds state and actions; `src/ui/*` are the React views.
-- `src/routes/api/*` are the server routes (`list`, `file`, `save`, `luts`).
+- `src/routes/api/luts.ts` lists and serves the shared `.cube` LUTs; `src/routes/api/sample.ts` serves the sample raws.
 
 Settings are project-wide with per-photo overrides: a photo stores only the keys that differ from the shoot.
 Crop, rotation and masks are always per photo.

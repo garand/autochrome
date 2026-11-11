@@ -10,24 +10,12 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as ApiFileRouteImport } from './routes/api/file'
-import { Route as ApiListRouteImport } from './routes/api/list'
 import { Route as ApiLutsRouteImport } from './routes/api/luts'
-import { Route as ApiSaveRouteImport } from './routes/api/save'
+import { Route as ApiSampleRouteImport } from './routes/api/sample'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiFileRoute = ApiFileRouteImport.update({
-  id: '/api/file',
-  path: '/api/file',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiListRoute = ApiListRouteImport.update({
-  id: '/api/list',
-  path: '/api/list',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiLutsRoute = ApiLutsRouteImport.update({
@@ -35,48 +23,40 @@ const ApiLutsRoute = ApiLutsRouteImport.update({
   path: '/api/luts',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSaveRoute = ApiSaveRouteImport.update({
-  id: '/api/save',
-  path: '/api/save',
+const ApiSampleRoute = ApiSampleRouteImport.update({
+  id: '/api/sample',
+  path: '/api/sample',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/api/file': typeof ApiFileRoute
-  '/api/list': typeof ApiListRoute
   '/api/luts': typeof ApiLutsRoute
-  '/api/save': typeof ApiSaveRoute
+  '/api/sample': typeof ApiSampleRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/api/file': typeof ApiFileRoute
-  '/api/list': typeof ApiListRoute
   '/api/luts': typeof ApiLutsRoute
-  '/api/save': typeof ApiSaveRoute
+  '/api/sample': typeof ApiSampleRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/api/file': typeof ApiFileRoute
-  '/api/list': typeof ApiListRoute
   '/api/luts': typeof ApiLutsRoute
-  '/api/save': typeof ApiSaveRoute
+  '/api/sample': typeof ApiSampleRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/file' | '/api/list' | '/api/luts' | '/api/save'
+  fullPaths: '/' | '/api/luts' | '/api/sample'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/file' | '/api/list' | '/api/luts' | '/api/save'
-  id: '__root__' | '/' | '/api/file' | '/api/list' | '/api/luts' | '/api/save'
+  to: '/' | '/api/luts' | '/api/sample'
+  id: '__root__' | '/' | '/api/luts' | '/api/sample'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  ApiFileRoute: typeof ApiFileRoute
-  ApiListRoute: typeof ApiListRoute
   ApiLutsRoute: typeof ApiLutsRoute
-  ApiSaveRoute: typeof ApiSaveRoute
+  ApiSampleRoute: typeof ApiSampleRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -88,20 +68,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/file': {
-      id: '/api/file'
-      path: '/api/file'
-      fullPath: '/api/file'
-      preLoaderRoute: typeof ApiFileRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/list': {
-      id: '/api/list'
-      path: '/api/list'
-      fullPath: '/api/list'
-      preLoaderRoute: typeof ApiListRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/luts': {
       id: '/api/luts'
       path: '/api/luts'
@@ -109,11 +75,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLutsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/save': {
-      id: '/api/save'
-      path: '/api/save'
-      fullPath: '/api/save'
-      preLoaderRoute: typeof ApiSaveRouteImport
+    '/api/sample': {
+      id: '/api/sample'
+      path: '/api/sample'
+      fullPath: '/api/sample'
+      preLoaderRoute: typeof ApiSampleRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -121,10 +87,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  ApiFileRoute: ApiFileRoute,
-  ApiListRoute: ApiListRoute,
   ApiLutsRoute: ApiLutsRoute,
-  ApiSaveRoute: ApiSaveRoute,
+  ApiSampleRoute: ApiSampleRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

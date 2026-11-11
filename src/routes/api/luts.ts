@@ -8,7 +8,7 @@ import { LUT_DIR, fail, handle, json } from '../../server/fs'
 export const Route = createFileRoute('/api/luts')({
   server: {
     handlers: {
-      GET: ({ request }) => handle(request, async () => {
+      GET: ({ request }) => handle(async () => {
         const name = new URL(request.url).searchParams.get('name')
         if (!name) { let files: string[] = []; try { files = (await fs.readdir(LUT_DIR)).filter(f => /\.cube$/i.test(f)).sort() } catch {} return json({ dir: LUT_DIR, files }) }
         if (path.basename(name) !== name || !/\.cube$/i.test(name)) fail(400, 'Bad LUT name')

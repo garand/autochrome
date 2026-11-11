@@ -5,6 +5,7 @@ import wasmUrl from 'libraw-wasm-nothread/dist/libraw.wasm?url'
 import { DEF, FULL, HSL, IMG_EXT, KEYS, LOOKS, MASK_ADJ, PRESETS, RAW_EXT, clamp, clone, cropValid, eq, extOf, fixCrop, half2f, lutCache, mapply, mgl, minv, parseCube, stem, texMatrix } from '../engine/core'
 import { Renderer, type GpuImage } from '../engine/gl'
 import { checkFaces } from '../engine/faces'
+import type { Sample } from '../samples'
 
 /* ------------------------------------------------------------------ topics */
 const versions: Record<string, number> = {}, listeners: Record<string, Set<() => void>> = {}
@@ -22,6 +23,7 @@ export interface Photo {
   ov: Record<string, any>; crop: any; orient: { rot: number; flip: boolean }; masks: any[]; flag: number; rating: number; label: number
   stats: any; meta: any; dim: number[] | null; cull: any; t: any; mid: any; thumb: HTMLCanvasElement
   done?: boolean; analysing?: boolean; queued?: boolean; error?: string; dirty?: boolean; visible?: boolean; midAt?: number
+  credit?: Sample   // set for the built-in samples, so the photographer is credited
 }
 export const S = {
   photos: [] as Photo[], byName: new Map<string, Photo>(), cur: null as string | null, multi: new Set<string>(),
@@ -84,8 +86,7 @@ async function saveNow() {
   if (!S.key || !S.photos.length) return
   const json = JSON.stringify(projectData())
   try {
-    if (S.source?.kind === 'server') await fetch(`/api/save?kind=project&dir=${encodeURIComponent(S.source.dir)}`, { method: 'POST', body: json })
-    else if (S.source?.kind === 'handle' && S.source.writable) { const fh = await S.source.dir.getFileHandle('autochrome-project.json', { create: true }), w = await fh.createWritable(); await w.write(json); await w.close() }
+    if (S.source?.kind === 'handle' && S.source.writable) { const fh = await S.source.dir.getFileHandle('autochrome-project.json', { create: true }), w = await fh.createWritable(); await w.write(json); await w.close() }
     else localStorage.setItem('autochrome:' + S.key, json)
   } catch (e) { /* saving is best-effort */ }
 }
@@ -436,7 +437,7 @@ async function quickPreview(p: Photo) {
   cv.width = Math.round(w * sc); cv.height = 200; const ctx = cv.getContext('2d')!
   ctx.save(); ctx.translate(cv.width / 2, cv.height / 2); ctx.rotate(rot * Math.PI / 180); ctx.drawImage(bmp, -(rot ? cv.height : cv.width) / 2, -(rot ? cv.width : cv.height) / 2, rot ? cv.height : cv.width, rot ? cv.width : cv.height); ctx.restore(); bmp.close()
 }
-type Entry = { name: string; size: number; load: () => Promise<ArrayBuffer>; read: (off: number, len: number) => Promise<ArrayBuffer> }
+type Entry = { name: string; size: number; load: () => Promise<ArrayBuffer>; read: (off: number, len: number) => Promise<ArrayBuffer>; credit?: Sample }
 const fileEntry = (name: string, get: () => Promise<File>, size = 0): Entry => { let f: File | null = null; const file = async () => (f ||= await get()); return { name, size, load: async () => (await file()).arrayBuffer(), read: async (o, l) => (await file()).slice(o, o + l).arrayBuffer() } }
 function reset() {
   pool.cancel(() => true); for (const [, c] of texCache) view.free(c.img); texCache.clear(); faceQ.length = 0
@@ -461,22 +462,37 @@ async function addEntries(entries: Entry[], saved?: any) {
   if (!S.history.length) { S.history = [{ label: 'Open', json: snap(), at: Date.now() }]; S.hIdx = 0 }
   emit(...ALL); if (!S.cur) select(S.photos[0].name)
 }
-export async function openServerDir(dir: string) {
-  const r = await fetch('/api/list?dir=' + encodeURIComponent(dir)), d = await r.json(); if (!r.ok) throw new Error(d.error || 'Could not open that folder')
-  if (!d.files.length) throw new Error('No raw or image files in ' + d.dir)
-  reset(); S.source = { kind: 'server', dir: d.dir }; S.title = d.name
-  const url = (n: string) => '/api/file?path=' + encodeURIComponent(d.dir + '/' + n)
-  await addEntries(d.files.map((f: any): Entry => ({ name: f.name, size: f.size, load: () => fetch(url(f.name)).then(r => { if (!r.ok) throw new Error('read failed'); return r.arrayBuffer() }), read: (o, l) => fetch(url(f.name), { headers: { range: `bytes=${o}-${o + l - 1}` } }).then(r => r.arrayBuffer()) })), d.project)
-  try { localStorage.setItem('autochrome:lastDir', d.dir) } catch {}
+/* Folders are always read by the browser from the viewer's own computer; nothing is uploaded.
+   Chromium's folder picker gives read/write access, so edits save into the folder and exports go back to it. */
+export const canPickFolder = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window
+export async function pickFolder() {
+  let dir: any
+  try { dir = await (window as any).showDirectoryPicker({ id: 'autochrome', mode: 'readwrite' }) }
+  catch (e: any) { if (e?.name === 'AbortError') return; throw new Error(e?.name === 'NotAllowedError' ? 'Autochrome needs permission to read that folder.' : e?.message || String(e)) }
+  return loadHandleDir(dir, true)
 }
-export const listServerDir = (dir: string) => fetch('/api/list?dir=' + encodeURIComponent(dir)).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error); return d })
+/* Built-in samples: entries that stream from /api/sample, so the shoot appears at once and each raw downloads as it is developed. */
+export async function openSamples(list: Sample[], title: string) {
+  reset(); S.source = { kind: 'files' }; S.title = title
+  const url = (s: Sample) => '/api/sample?id=' + s.id
+  const get = async (s: Sample, range?: string) => { const r = await fetch(url(s), range ? { headers: { range } } : undefined); if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `Could not load ${s.file}`); return r.arrayBuffer() }
+  await addEntries(list.map(s => ({ name: s.file, size: s.size, credit: s, load: () => get(s), read: (o: number, l: number) => get(s, `bytes=${o}-${o + l - 1}`) })))
+}
+/* Fallback for browsers without the picker: an <input webkitdirectory> list. Read-only, so edits save in this browser and exports download as a zip. */
+export async function openFolderFiles(files: FileList) {
+  const top = [...files].filter(f => ((f as any).webkitRelativePath || f.name).split('/').length <= 2)
+  const proj = top.find(f => f.name === 'autochrome-project.json'); let saved = null
+  if (proj) try { saved = JSON.parse(await proj.text()) } catch {}
+  reset(); S.source = { kind: 'files' }; S.title = ((files[0] as any)?.webkitRelativePath || '').split('/')[0] || 'Folder'
+  await addEntries(top.filter(f => f !== proj).map(f => fileEntry(f.name, async () => f, f.size)), saved)
+}
 async function loadHandleDir(dir: any, writable: boolean) {
   reset(); S.source = { kind: 'handle', dir, writable }; S.title = dir.name
   const entries: Entry[] = []; let saved = null
   for await (const [name, h] of dir.entries()) { if (h.kind !== 'file') continue; if (name === 'autochrome-project.json') { try { saved = JSON.parse(await (await h.getFile()).text()) } catch {} } else entries.push(fileEntry(name, () => h.getFile())) }
   await addEntries(entries, saved)
 }
-export function addFiles(files: FileList | File[]) { if (!S.source) { S.source = { kind: 'files' }; S.title = 'Dropped files' } return addEntries([...files].map(f => fileEntry(f.name, async () => f, f.size))) }
+export function addFiles(files: FileList | File[]) { if (!S.source) { S.source = { kind: 'files' }; S.title = 'Photos' } return addEntries([...files].map(f => fileEntry(f.name, async () => f, f.size))) }
 export async function handleDrop(e: DragEvent) {
   e.preventDefault(); const items = [...(e.dataTransfer?.items || [])].filter(i => i.kind === 'file')
   if (items[0] && (items[0] as any).getAsFileSystemHandle) {
@@ -530,7 +546,7 @@ function zipStore(files: { name: string; data: Uint8Array }[]) {
 }
 export interface ExportOpts { which: 'picks' | 'norej' | 'sel' | 'all'; format: 'jpeg' | 'webp' | 'png'; quality: number; longEdge: number; sub: string; suffix: string; dest: 'folder' | 'zip' }
 export const exportList = (which: string) => (which === 'picks' ? S.photos.filter(p => p.flag === 1) : which === 'sel' ? S.photos.filter(p => S.multi.has(p.name)) : which === 'all' ? S.photos : S.photos.filter(p => p.flag !== -1))
-export const canExportToFolder = () => S.source?.kind === 'server' || S.source?.kind === 'handle'
+export const canExportToFolder = () => S.source?.kind === 'handle'
 export async function runExport(o: ExportOpts, progress: (i: number, n: number, name: string) => void) {
   const list = exportList(o.which); if (!list.length) throw new Error('Nothing to export with that choice')
   S.exporting = true; const zip: { name: string; data: Uint8Array }[] = []; let done = 0, outDir: any = null
@@ -551,8 +567,7 @@ export async function runExport(o: ExportOpts, progress: (i: number, n: number, 
       work.draw(img, eff(p), { m: mgl(texMatrix(g, W, H, p.orient)), outW: oW, outH: oH, auto: autoFor(p), faces: p.stats?.faces, masks: p.masks, grainRes: [full[0] / k, full[1] / k] })
       const blob: Blob = await new Promise(res => work.canvas.toBlob(b => res(b!), 'image/' + o.format, o.quality)); work.free(img); r.pixels = null
       const name = stem(p.name) + o.suffix + '.' + ext
-      if (o.dest === 'folder' && S.source.kind === 'server') { const res = await fetch(`/api/save?kind=export&dir=${encodeURIComponent(S.source.dir)}&sub=${encodeURIComponent(o.sub)}&name=${encodeURIComponent(name)}`, { method: 'POST', body: blob }); if (!res.ok) throw new Error((await res.json()).error || 'write failed') }
-      else if (outDir) { const fh = await outDir.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(blob); await w.close() }
+      if (outDir) { const fh = await outDir.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(blob); await w.close() }
       else zip.push({ name, data: new Uint8Array(await blob.arrayBuffer()) })
       done++
     }

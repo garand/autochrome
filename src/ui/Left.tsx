@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import * as A from '../app/store'
 import { FOCUS, PRESETS, S, cur, dimsOf, useTopic } from '../app/store'
+import { LICENSE_URL } from '../samples'
 import { Icon, Section } from './widgets'
 
 function Presets() {
@@ -46,6 +47,8 @@ function Info() {
         {m.model && <><dt>Camera</dt><dd>{[m.make, m.model].filter(Boolean).join(' ')}</dd></>}
         {p.dim && <><dt>Size</dt><dd>{W} × {H} · {(W * H / 1e6).toFixed(1)} MP</dd></>}
         {m.time && <><dt>Taken</dt><dd>{new Date(m.time * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</dd></>}
+        {p.credit && <><dt>By</dt><dd><a href={p.credit.topic} target="_blank" rel="noopener noreferrer" title="Open the Play Raw thread on PIXLS.US">{p.credit.author}</a></dd>
+          <dt>Licence</dt><dd><a href={LICENSE_URL[p.credit.license]} target="_blank" rel="noopener noreferrer">{p.credit.license}</a></dd></>}
       </dl>
       <div className="sub"><span>Faces</span>{c?.n ? <em className="score" title="Cull score: eyes open, looking at the camera and focus">{c.score}</em> : null}</div>
       {!c ? <p className="note">Checking faces…</p> : !c.n ? <p className="note">No faces to check in this photo.</p> : (
