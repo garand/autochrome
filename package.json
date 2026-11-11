@@ -1,0 +1,39 @@
+{
+  "name": "autochrome",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*"
+  },
+  "scripts": {
+    "dev": "vite dev --port 3000 --host 127.0.0.1",
+    "build": "vite build",
+    "start": "HOST=127.0.0.1 PORT=3000 node .output/server/index.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "1.170.46",
+    "@tanstack/react-start": "1.169.5",
+    "@vladmandic/human": "^3.3.6",
+    "libraw-wasm-nothread": "^1.6.0-nothread.1",
+    "nitro": "3.0.260610-beta",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lightningcss"
+    ]
+  },
+  "version": "0.1.0",
+  "description": "A browser raw developer for whole shoots: project-wide edits, per-photo overrides, film looks, face-aware culling."
+}
