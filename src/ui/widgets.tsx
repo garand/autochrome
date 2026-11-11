@@ -23,25 +23,79 @@ export function Section({ id, title, count, onReset, defaultOpen = true, extra, 
   )
 }
 const fmt = (v: number, step: number, signed: boolean) => (step < 1 ? (signed && v > 0 ? '+' : '') + v.toFixed(2) : (signed && v > 0 ? '+' : '') + Math.round(v))
-export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swatch, show, parse, onChange, onCommit, onReset, onClearOv }: {
+const snap = (v: number, step: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v / step) * step))
+
+/* A DialKit-style slider: the whole row is the control. Drag anywhere on it to scrub (Shift for fine), click the
+   number to type, double-click to reset, arrow keys step (Shift x10). Two-way values fill from the centre. */
+export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swatch, show, parse, note, onChange, onCommit, onReset, onClearOv }: {
   label: string; value: number; min: number; max: number; step?: number; def?: number; cls?: string; ov?: boolean; swatch?: string
   show?: (v: number) => string; parse?: (text: string) => number   // custom display (e.g. 5200 K) and the reverse for typed values
+  note?: string                                                    // a quiet second value, e.g. the auto exposure offset
   onChange: (v: number) => void; onCommit?: (v: number) => void; onReset?: () => void; onClearOv?: () => void
 }) {
-  const signed = min < 0, [text, setText] = useState<string | null>(null), last = useRef(value); last.current = value
-  const p = (value - min) / (max - min) * 100, z = signed ? (0 - min) / (max - min) * 100 : 0
-  const reset = () => (onReset ? onReset() : (onChange(def), onCommit?.(def)))
+  const signed = min < 0 && max > 0, [text, setText] = useState<string | null>(null), [drag, setDrag] = useState(false), [settle, setSettle] = useState(false)
+  const last = useRef(value), d = useRef<{ x: number; v: number; w: number; moved: boolean } | null>(null), box = useRef<HTMLDivElement>(null); last.current = value
+  const pct = (x: number) => (Math.min(max, Math.max(min, x)) - min) / (max - min) * 100, p = pct(value), z = signed ? pct(0) : 0
+  const label2 = show ? show(value) : fmt(value, step, signed)
+  const reset = () => { setSettle(true); setTimeout(() => setSettle(false), 260); if (onReset) onReset(); else { onChange(def); onCommit?.(def) } }
   const typed = () => { if (text == null) return; const v = parse ? parse(text) : parseFloat(text); setText(null); if (!isNaN(v)) { const c = Math.min(max, Math.max(min, v)); onChange(c); onCommit?.(c) } }
+  const down = (e: React.PointerEvent) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.dval, .dot')) return
+    d.current = { x: e.clientX, v: value, w: box.current!.getBoundingClientRect().width, moved: false }; box.current!.setPointerCapture(e.pointerId); box.current!.focus()
+  }
+  const move = (e: React.PointerEvent) => {
+    const s = d.current; if (!s) return; const dx = e.clientX - s.x; if (!s.moved && Math.abs(dx) < 3) return
+    if (!s.moved) { s.moved = true; setDrag(true) }
+    onChange(snap(s.v + dx / s.w * (max - min) * (e.shiftKey ? 0.1 : 1), step, min, max))
+  }
+  const up = () => { const s = d.current; d.current = null; if (s?.moved) { setDrag(false); onCommit?.(last.current) } }
+  const key = (e: React.KeyboardEvent) => {
+    const k = e.key, big = e.shiftKey ? 10 : 1
+    if (k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowLeft' || k === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); const v = snap(value + (k === 'ArrowRight' || k === 'ArrowUp' ? 1 : -1) * step * big, step, min, max); onChange(v); onCommit?.(v) }
+    else if (k === 'Home' || k === 'End') { e.preventDefault(); const v = k === 'Home' ? min : max; onChange(v); onCommit?.(v) }
+    else if (k === 'Enter') { e.preventDefault(); setText(show ? show(value) : fmt(value, step, false)) }
+    else if (k === 'Backspace' || k === 'Delete') { e.preventDefault(); reset() }
+  }
   return (
-    <div className={'row' + (ov ? ' ov' : '') + (value !== def ? ' changed' : '')}>
-      <label onDoubleClick={reset} title="Double-click to reset">
+    <div ref={box} className={'dial' + (cls ? ' ' + cls : '') + (ov ? ' ov' : '') + (value !== def ? ' changed' : '') + (drag ? ' dragging' : '') + (settle ? ' settle' : '')}
+      role="slider" tabIndex={0} aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={value} aria-valuetext={label2}
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('.dval')) reset() }} onKeyDown={key} title="Drag to adjust, Shift for fine. Double-click to reset.">
+      <i className="dfill" style={{ left: Math.min(p, z) + '%', width: Math.abs(p - z) + '%' }} />
+      {signed && <i className="dzero" style={{ left: z + '%' }} />}
+      <i className="dedge" style={{ left: p + '%' }} />
+      <span className="dlabel">
         {onClearOv && <i className="dot" title="Set on this photo only. Click to go back to the shoot value." onClick={e => { e.stopPropagation(); onClearOv() }} />}
         {swatch && <i className="sw" style={{ background: swatch }} />}{label}
-      </label>
-      <input type="range" className={cls} min={min} max={max} step={step} value={value} style={{ '--a': Math.min(p, z) + '%', '--b': Math.max(p, z) + '%' } as any}
-        onChange={e => onChange(+e.target.value)} onPointerUp={() => onCommit?.(last.current)} onKeyUp={() => onCommit?.(last.current)} onDoubleClick={reset} aria-label={label} />
-      <input className="num" value={text ?? (show ? show(value) : fmt(value, step, signed))} onFocus={e => { setText(show ? show(value) : fmt(value, step, false)); requestAnimationFrame(() => e.target.select()) }} onChange={e => setText(e.target.value)} onBlur={typed}
-        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); else if (e.key === 'Escape') { setText(null); (e.target as HTMLInputElement).blur() } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); const v = Math.min(max, Math.max(min, value + (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1))); onChange(v); onCommit?.(v); setText(show ? show(v) : fmt(v, step, false)) } e.stopPropagation() }} aria-label={label + ' value'} />
+      </span>
+      {note && <span className="dnote">{note}</span>}
+      {text != null
+        ? <input className="dval editing" autoFocus value={text} onFocus={e => requestAnimationFrame(() => e.target.select())} onChange={e => setText(e.target.value)} onBlur={typed} aria-label={label + ' value'}
+            onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); else if (e.key === 'Escape') { setText(null); box.current?.focus() } }} />
+        : <span className="dval" onClick={e => { e.stopPropagation(); setText(show ? show(value) : fmt(value, step, false)) }} title="Click to type a value">{label2}</span>}
+    </div>
+  )
+}
+
+/* A two-value pad (DialKit's XY pad): drag the puck, Shift locks to the axis you started on, double-click resets. */
+export function Pad({ x, y, xr, yr, cls, title, onChange, onCommit, onReset, children }: {
+  x: number; y: number; xr: [number, number]; yr: [number, number]; cls?: string; title?: string
+  onChange: (x: number, y: number) => void; onCommit?: () => void; onReset?: () => void; children?: ReactNode
+}) {
+  const box = useRef<HTMLDivElement>(null), d = useRef<{ x0: number; y0: number; sx: number; sy: number; lock: 0 | 1 | 2 } | null>(null), [drag, setDrag] = useState(false)
+  const px = (x - xr[0]) / (xr[1] - xr[0]) * 100, py = 100 - (y - yr[0]) / (yr[1] - yr[0]) * 100
+  const at = (e: React.PointerEvent) => { const b = box.current!.getBoundingClientRect(); return [xr[0] + Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)) * (xr[1] - xr[0]), yr[0] + Math.min(1, Math.max(0, 1 - (e.clientY - b.top) / b.height)) * (yr[1] - yr[0])] }
+  const down = (e: React.PointerEvent) => { if (e.button !== 0) return; box.current!.setPointerCapture(e.pointerId); const [a, b] = at(e); d.current = { x0: e.clientX, y0: e.clientY, sx: x, sy: y, lock: 0 }; setDrag(true); onChange(Math.round(a), Math.round(b)) }
+  const move = (e: React.PointerEvent) => {
+    const s = d.current; if (!s) return; let [a, b] = at(e)
+    if (e.shiftKey) { if (!s.lock) s.lock = Math.abs(e.clientX - s.x0) >= Math.abs(e.clientY - s.y0) ? 1 : 2; if (s.lock === 1) b = s.sy; else a = s.sx } else s.lock = 0
+    onChange(Math.round(a), Math.round(b))
+  }
+  const up = () => { if (d.current) { d.current = null; setDrag(false); onCommit?.() } }
+  return (
+    <div ref={box} className={'pad' + (cls ? ' ' + cls : '') + (drag ? ' dragging' : '')} title={title} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDoubleClick={onReset}>
+      <i className="pcross" style={{ left: (0 - xr[0]) / (xr[1] - xr[0]) * 100 + '%', top: 100 - (0 - yr[0]) / (yr[1] - yr[0]) * 100 + '%' }} />
+      <i className="puck" style={{ left: px + '%', top: py + '%' }} />
+      {children}
     </div>
   )
 }

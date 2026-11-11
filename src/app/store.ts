@@ -154,6 +154,8 @@ function meterGain(st: any) {
 }
 const skinWB = (st: any) => [clamp(Math.pow(1.8 / st.skin.rg, 0.8), 0.8, 1.7), 1, clamp(Math.pow(0.78 / st.skin.bg, 0.8), 0.5, 1.25)]
 let baseEv = 2
+/* how far 'Balance exposure across the shoot' moves this photo, in stops (added to the Exposure slider) */
+export const autoEvOffset = (p: Photo) => autoFor(p).ev - baseEv
 function recomputeBase() { const g = S.photos.filter(p => p.stats).map(p => Math.log2(meterGain(p.stats))); if (g.length) baseEv = median(g) }
 /* the photo's as-shot white balance: real camera data for raws, an sRGB / D65 model otherwise */
 export const wbShot = (p?: Photo | null): WbState => (p?.meta?.color ? asShot(p.meta.color) : SRGB_SHOT)

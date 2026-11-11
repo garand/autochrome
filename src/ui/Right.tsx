@@ -4,12 +4,12 @@ import { DEF, KEYS, S, changedCount, clearOv, commit, cur, curS, isOv, resetKeys
 import { HSL, ID_CURVE, clamp, clone, curveLut, eq } from '../engine/core'
 import { RECIPES, YOURS, allStyles, styleById, styleCats } from '../engine/styles'
 import * as WB from '../engine/wb'
-import { Icon, IconBtn, Section, Seg, Slider } from './widgets'
+import { Icon, IconBtn, Pad, Section, Seg, Slider } from './widgets'
 
 /* one adjustment bound to a settings key, honouring the shoot / photo scope */
-function Adj({ k, label, min = -100, max = 100, step = 1, cls, swatch, show, parse }: { k: string; label: string; min?: number; max?: number; step?: number; cls?: string; swatch?: string; show?: (v: number) => string; parse?: (t: string) => number }) {
+function Adj({ k, label, min = -100, max = 100, step = 1, cls, swatch, show, parse, note }: { k: string; label: string; min?: number; max?: number; step?: number; cls?: string; swatch?: string; show?: (v: number) => string; parse?: (t: string) => number; note?: string }) {
   const v = curS()[k]
-  return <Slider label={label} value={v} min={min} max={max} step={step} def={DEF[k]} cls={cls} swatch={swatch} show={show} parse={parse} ov={isOv(k)} onClearOv={isOv(k) ? () => clearOv(k) : undefined}
+  return <Slider label={label} value={v} min={min} max={max} step={step} def={DEF[k]} cls={cls} swatch={swatch} show={show} parse={parse} note={note} ov={isOv(k)} onClearOv={isOv(k) ? () => clearOv(k) : undefined}
     onChange={x => setVal(k, x)} onCommit={x => commit(`${label} ${step < 1 ? x.toFixed(2) : x}`, k)}
     onReset={() => (S.scope === 'photo' ? clearOv(k) : (setVal(k, DEF[k]), commit('Reset ' + label)))} />
 }
@@ -39,15 +39,22 @@ function Histogram() {
   )
 }
 
+/* the hidden part of exposure: how far shoot balancing moved this photo, in stops */
+const autoNote = (p: any) => { if (!p || !S.proj.autoExposure) return undefined; const o = A.autoEvOffset(p); return Math.abs(o) < 0.005 ? undefined : `auto ${o > 0 ? '+' : ''}${o.toFixed(2)}` }
+
 /* Temperature and tint. For raws the sliders read in real units for the current photo (Kelvin and tint from its camera
    data); the stored values are relative to as shot, so a shoot-wide change shifts every photo by the same amount. */
 function WhiteBalance() {
-  const p = cur(), shot = A.wbShot(p), raw = shot.info.raw
+  const p = cur(), shot = A.wbShot(p), raw = shot.info.raw, s = curS()
   const lo = raw ? WB.tempForKelvin(shot, WB.K_MIN) : -100, hi = raw ? WB.tempForKelvin(shot, WB.K_MAX) : 100
   const kfmt = (v: number) => { const K = WB.absolute(shot, v, 0).kelvin; return (K >= 10000 ? Math.round(K / 100) * 100 : Math.round(K / 10) * 10) + ' K' }
   const asShot = raw ? `As shot ${kfmt(0)} · tint ${Math.round(shot.tint)}` : 'No camera colour data in this file, so these are relative'
   return <>
     <div className="sub"><span>White balance</span><button className={'mini' + (S.tool === 'wb' ? ' on' : '')} title="Pick a neutral grey or white in the photo (W)" onClick={() => A.setTool(S.tool === 'wb' ? 'select' : 'wb')}><Icon name="dropper" size={14} /></button></div>
+    <Pad cls="wb" x={s.temp} y={s.tint} xr={[Math.floor(lo), Math.ceil(hi)]} yr={[-150, 150]} title="Drag to set temperature (across) and tint (up is magenta). Shift locks an axis. Double-click for as shot."
+      onChange={(x, y) => { setVal('temp', x); setVal('tint', y) }} onCommit={() => commit('White balance', 'wbpad')} onReset={() => { setVal('temp', 0); setVal('tint', 0); commit('As shot white balance') }}>
+      <span className="plabel" style={{ left: 7, bottom: 5 }}>cooler</span><span className="plabel" style={{ right: 7, bottom: 5 }}>warmer</span><span className="plabel" style={{ left: 7, top: 5 }}>magenta</span>
+    </Pad>
     <Adj k="temp" label="Temp" min={Math.floor(lo)} max={Math.ceil(hi)} cls="temp" show={raw ? kfmt : undefined} parse={raw ? t => WB.tempForKelvin(shot, parseFloat(t)) : undefined} />
     <Adj k="tint" label="Tint" min={-150} max={150} cls="tint" show={raw ? v => String(Math.round(shot.tint + v)) : undefined} parse={raw ? t => WB.tintFor(shot, parseFloat(t)) : undefined} />
     <p className="note wbnote" title={raw ? 'Read from the camera\'s white balance and colour matrix' : ''}>{p ? asShot : ''}</p>
@@ -221,7 +228,7 @@ export function Right() {
           <div className="sub"><span>Treatment</span><Seg value={s.bw ? 1 : 0} options={[[0, 'Colour'], [1, 'Black & white']]} onChange={v => { setVal('bw', v); commit(v ? 'Black & white' : 'Colour') }} /></div>
           <WhiteBalance />
           <div className="sub"><span>Tone</span></div>
-          <Adj k="exposure" label="Exposure" min={-4} max={4} step={0.01} /><Adj k="contrast" label="Contrast" /><Adj k="highlights" label="Highlights" /><Adj k="shadows" label="Shadows" /><Adj k="whites" label="Whites" /><Adj k="blacks" label="Blacks" />
+          <Adj k="exposure" label="Exposure" min={-4} max={4} step={0.01} note={autoNote(p)} /><Adj k="contrast" label="Contrast" /><Adj k="highlights" label="Highlights" /><Adj k="shadows" label="Shadows" /><Adj k="whites" label="Whites" /><Adj k="blacks" label="Blacks" />
           <div className="sub"><span>Presence</span></div>
           <Adj k="texture" label="Texture" /><Adj k="clarity" label="Clarity" /><Adj k="dehaze" label="Dehaze" /><Adj k="vibrance" label="Vibrance" /><Adj k="saturation" label="Saturation" />
         </Section>
