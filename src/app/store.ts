@@ -6,6 +6,7 @@ import { DEF, FULL, HSL, IMG_EXT, KEYS, LOOKS, MASK_ADJ, PRESETS, RAW_EXT, clamp
 import { Renderer, type GpuImage } from '../engine/gl'
 import { checkFaces } from '../engine/faces'
 import type { Sample } from '../samples'
+import { SRGB_SHOT, asShot, neutralise, type WbState } from '../engine/wb'
 
 /* ------------------------------------------------------------------ topics */
 const versions: Record<string, number> = {}, listeners: Record<string, Set<() => void>> = {}
@@ -134,8 +135,10 @@ function meterGain(st: any) {
 const skinWB = (st: any) => [clamp(Math.pow(1.8 / st.skin.rg, 0.8), 0.8, 1.7), 1, clamp(Math.pow(0.78 / st.skin.bg, 0.8), 0.5, 1.25)]
 let baseEv = 2
 function recomputeBase() { const g = S.photos.filter(p => p.stats).map(p => Math.log2(meterGain(p.stats))); if (g.length) baseEv = median(g) }
+/* the photo's as-shot white balance: real camera data for raws, an sRGB / D65 model otherwise */
+export const wbShot = (p?: Photo | null): WbState => (p?.meta?.color ? asShot(p.meta.color) : SRGB_SHOT)
 export function autoFor(p: Photo) {
-  const a = { ev: baseEv, black: 0, wb: [1, 1, 1] }
+  const a = { ev: baseEv, black: 0, wb: [1, 1, 1], shot: wbShot(p) }
   if (p.stats && S.proj.autoExposure) { a.ev = Math.log2(meterGain(p.stats)); a.black = 0.5 * p.stats.p01 }
   if (S.proj.autoWB) {
     let src = p.stats?.skin ? p : null
@@ -367,8 +370,8 @@ export function pickWB(x: number, y: number) {
   const [u, v] = screenToUv(x, y), T = p.t, cx = Math.round(u * (T.w - 1)), cy = Math.round(v * (T.h - 1)); let r = 0, g = 0, b = 0, n = 0
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const X = cx + i, Y = cy + j; if (X < 0 || Y < 0 || X >= T.w || Y >= T.h) continue; const k = (Y * T.w + X) * 3; r += half2f(T.data[k]); g += half2f(T.data[k + 1]); b += half2f(T.data[k + 2]); n++ }
   if (!n || r <= 0 || g <= 0 || b <= 0) return
-  const aw = autoFor(p).wb, A_ = Math.log((g * aw[1]) / (r * aw[0])), B_ = Math.log((g * aw[1]) / (b * aw[2]))
-  setVal('temp', Math.round(clamp((A_ - B_) / 0.6 * 100, -150, 150))); setVal('tint', Math.round(clamp((A_ + B_) / 0.6 * 100, -150, 150)))
+  const fix = neutralise(wbShot(p), [r, g, b], autoFor(p).wb); if (!fix) return
+  setVal("temp", Math.round(fix.temp)); setVal("tint", Math.round(fix.tint))
   commit('White balance pick'); setTool('select')
 }
 

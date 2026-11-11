@@ -3,6 +3,7 @@
 // @ts-ignore - no types shipped for the bare factory
 import factory from 'libraw-wasm-nothread/dist/libraw.js'
 import { unpackCascade, runCascade, clusterDetections } from './pico'
+import { colorInfoFromLibRaw } from './wb'
 let lr: any = null, classify: any = null
 const HALF = new Uint16Array(65536); // linear uint16 (0..65535 => 0..1) -> IEEE half-float bits
 (() => {
@@ -136,8 +137,8 @@ async function decode(job: any) {
   let w: number, h: number, px: Uint16Array, meta: any = {};
   if (job.kind === 'raw') {
     lr.open(new Uint8Array(job.buf), { halfSize: !!job.half, useCameraWb: true, noAutoBright: true, outputBps: 16, outputColor: 1, gamm: [1, 1, 0, 0, 0, 0], highlight: 2, adjustMaximumThr: 0.75, bright: 1, userQual: job.half ? 0 : 3, fbddNoiserd: job.half ? 0 : 1 });
-    const m = lr.metadata(false) || {};
-    meta = { iso: m.iso_speed, shutter: m.shutter, aperture: m.aperture, focal: m.focal_len, make: m.camera_make || m.make, model: m.camera_model || m.model, time: m.timestamp };
+    const m = lr.metadata(true) || {};
+    meta = { iso: m.iso_speed, shutter: m.shutter, aperture: m.aperture, focal: m.focal_len, make: m.camera_make || m.make, model: m.camera_model || m.model, time: m.timestamp, color: colorInfoFromLibRaw(m.color_data) };
     const img = lr.imageData();
     if (!img || !img.data) throw new Error('LibRaw could not decode this file');
     w = img.width; h = img.height;

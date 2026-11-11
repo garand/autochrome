@@ -229,3 +229,4 @@ svg.masks { position: absolute; inset: 0; touch-action: none; }
   *, *::before, *::after { transition-property: opacity, color, background-color, border-color, outline-color !important; animation: none !important; }
   *:active { transform: none !important; }
 }
+.wbnote { margin: 2px 0 4px; font-variant-numeric: tabular-nums; }

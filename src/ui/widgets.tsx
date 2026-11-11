@@ -23,14 +23,15 @@ export function Section({ id, title, count, onReset, defaultOpen = true, extra, 
   )
 }
 const fmt = (v: number, step: number, signed: boolean) => (step < 1 ? (signed && v > 0 ? '+' : '') + v.toFixed(2) : (signed && v > 0 ? '+' : '') + Math.round(v))
-export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swatch, onChange, onCommit, onReset, onClearOv }: {
+export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swatch, show, parse, onChange, onCommit, onReset, onClearOv }: {
   label: string; value: number; min: number; max: number; step?: number; def?: number; cls?: string; ov?: boolean; swatch?: string
+  show?: (v: number) => string; parse?: (text: string) => number   // custom display (e.g. 5200 K) and the reverse for typed values
   onChange: (v: number) => void; onCommit?: (v: number) => void; onReset?: () => void; onClearOv?: () => void
 }) {
   const signed = min < 0, [text, setText] = useState<string | null>(null), last = useRef(value); last.current = value
   const p = (value - min) / (max - min) * 100, z = signed ? (0 - min) / (max - min) * 100 : 0
   const reset = () => (onReset ? onReset() : (onChange(def), onCommit?.(def)))
-  const typed = () => { if (text == null) return; const v = parseFloat(text); setText(null); if (!isNaN(v)) { const c = Math.min(max, Math.max(min, v)); onChange(c); onCommit?.(c) } }
+  const typed = () => { if (text == null) return; const v = parse ? parse(text) : parseFloat(text); setText(null); if (!isNaN(v)) { const c = Math.min(max, Math.max(min, v)); onChange(c); onCommit?.(c) } }
   return (
     <div className={'row' + (ov ? ' ov' : '') + (value !== def ? ' changed' : '')}>
       <label onDoubleClick={reset} title="Double-click to reset">
@@ -39,8 +40,8 @@ export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swa
       </label>
       <input type="range" className={cls} min={min} max={max} step={step} value={value} style={{ '--a': Math.min(p, z) + '%', '--b': Math.max(p, z) + '%' } as any}
         onChange={e => onChange(+e.target.value)} onPointerUp={() => onCommit?.(last.current)} onKeyUp={() => onCommit?.(last.current)} onDoubleClick={reset} aria-label={label} />
-      <input className="num" value={text ?? fmt(value, step, signed)} onFocus={e => { setText(fmt(value, step, false)); requestAnimationFrame(() => e.target.select()) }} onChange={e => setText(e.target.value)} onBlur={typed}
-        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); else if (e.key === 'Escape') { setText(null); (e.target as HTMLInputElement).blur() } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); const v = Math.min(max, Math.max(min, value + (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1))); onChange(v); onCommit?.(v); setText(fmt(v, step, false)) } e.stopPropagation() }} aria-label={label + ' value'} />
+      <input className="num" value={text ?? (show ? show(value) : fmt(value, step, signed))} onFocus={e => { setText(show ? show(value) : fmt(value, step, false)); requestAnimationFrame(() => e.target.select()) }} onChange={e => setText(e.target.value)} onBlur={typed}
+        onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); else if (e.key === 'Escape') { setText(null); (e.target as HTMLInputElement).blur() } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); const v = Math.min(max, Math.max(min, value + (e.key === 'ArrowUp' ? 1 : -1) * step * (e.shiftKey ? 10 : 1))); onChange(v); onCommit?.(v); setText(show ? show(v) : fmt(v, step, false)) } e.stopPropagation() }} aria-label={label + ' value'} />
     </div>
   )
 }

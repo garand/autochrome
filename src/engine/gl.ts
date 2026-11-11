@@ -1,4 +1,5 @@
 import { HSL, curveIsId, curveLut, getLut, hsv2rgb } from './core'
+import { SRGB_SHOT, wbMatrix, type WbState } from './wb'
 
 const VS = `#version 300 es
 in vec2 aPos; out vec2 vUv; void main(){ vUv=vec2(aPos.x*.5+.5,.5-aPos.y*.5); gl_Position=vec4(aPos,0.,1.); }`
@@ -10,7 +11,7 @@ const FS = `#version 300 es
 precision highp float; precision highp sampler3D;
 uniform sampler2D uImg,uBlur,uCurve; uniform sampler3D uLut;
 uniform mat3 uTex; uniform vec2 uImgSize,uGrainRes,uNR; uniform vec4 uView;
-uniform vec3 uWB,uShTint,uMidTint,uHiTint; uniform vec3 uHsl[8]; uniform vec2 uHslC[8]; uniform vec4 uFaces[8]; uniform int uNFaces;
+uniform mat3 uWBM; uniform vec3 uShTint,uMidTint,uHiTint; uniform vec3 uHsl[8]; uniform vec2 uHslC[8]; uniform vec4 uFaces[8]; uniform int uNFaces;
 uniform vec4 uMaskGeo[4]; uniform vec4 uMaskPar[4]; uniform vec3 uMaskGain[4]; uniform vec2 uMaskAdj[4]; uniform int uMaskShow;
 uniform float uGain,uBlack,uContrast,uHi,uSh,uWhites,uBlacks,uClarity,uDehaze,uDetail,uVib,uSat,uFade,uLutAmt,uLutN,uVig,uGrain,uFaceLight,uSkin,uSeed,uBal,uBW,uCurveOn,uClip;
 in vec2 vUv; out vec4 o;
@@ -40,8 +41,8 @@ void main(){
     if(ty<1.5){ vec2 d=(uv-uMaskGeo[i].xy)*uImgSize, ab=(uMaskGeo[i].zw-uMaskGeo[i].xy)*uImgSize; m=1.-smoothstep(0.,1.,dot(d,ab)/max(dot(ab,ab),1e-6)); }
     else { float r=length((uv-uMaskGeo[i].xy)/max(uMaskGeo[i].zw,vec2(1e-4))); m=1.-smoothstep(1.-uMaskPar[i].y,1.,r); if(uMaskPar[i].z>.5)m=1.-m; }
     lg*=mix(vec3(1.),uMaskGain[i],m); lc+=m*uMaskAdj[i].x; lsat+=m*uMaskAdj[i].y; if(i==uMaskShow)show=m; }
-  c=max(c*uWB*uGain*lg-uBlack,0.);
-  float Lb=max(texture(uBlur,uv).r*uGain*luma(uWB*lg)-uBlack,0.);
+  c=max((uWBM*c)*uGain*lg-uBlack,0.);
+  float Lb=max(texture(uBlur,uv).r*uGain*luma((uWBM*vec3(1.))*lg)-uBlack,0.);
   c=max((c-uDehaze*Lb)/(1.-uDehaze),0.);
   float pb=sqrt(clamp(Lb,0.,1.));
   float e=uSh*1.7*pow(1.-pb,2.5)+uHi*1.5*smoothstep(.4,1.,pb);
@@ -82,7 +83,7 @@ export interface DrawOpts {
   m: Float32Array            // output uv -> image uv
   view?: number[]            // visible part of the crop [x, y, w, h], normalised
   outW: number; outH: number
-  auto: { ev: number; black: number; wb: number[] }
+  auto: { ev: number; black: number; wb: number[]; shot?: WbState }
   faces?: any[]; masks?: any[]; showMask?: number; clip?: boolean; quick?: boolean; grainRes?: number[]
 }
 
@@ -147,8 +148,9 @@ export class Renderer {
     gl.uniformMatrix3fv(u.uTex, false, o.m); gl.uniform2f(u.uImgSize, img.w, img.h)
     gl.uniform4fv(u.uView, o.view || [0, 0, 1, 1]); gl.uniform2fv(u.uGrainRes, o.grainRes || [outW, outH])
     const wbOf = (t: number, ti: number) => [Math.exp(0.3 * t + 0.1 * ti), Math.exp(-0.2 * ti), Math.exp(-0.3 * t + 0.1 * ti)]
-    let wb = wbOf(s.temp / 100, s.tint / 100).map((x, i) => x * o.auto.wb[i]); const nl = 0.2126 * wb[0] + 0.7152 * wb[1] + 0.0722 * wb[2]; wb = wb.map(x => x / nl)
-    gl.uniform3fv(u.uWB, wb)
+    // white balance in camera space (see wb.ts), times the skin-matching correction; uploaded column-major
+    const W = wbMatrix(o.auto.shot || SRGB_SHOT, s.temp, s.tint, o.auto.wb)
+    gl.uniformMatrix3fv(u.uWBM, false, [W[0], W[3], W[6], W[1], W[4], W[7], W[2], W[5], W[8]])
     const gain = Math.pow(2, s.exposure + o.auto.ev)
     gl.uniform1f(u.uGain, gain); gl.uniform1f(u.uBlack, o.auto.black * gain)
     gl.uniform1f(u.uContrast, 0.12 + s.contrast / 100 * 0.42); gl.uniform1f(u.uHi, s.highlights / 100); gl.uniform1f(u.uSh, s.shadows / 100)
