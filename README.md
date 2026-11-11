@@ -29,10 +29,12 @@ in the browser and export a .zip. The server only serves the app and the shared 
 
 ## Sample photos
 
-The open screen offers sample portraits and landscapes to try the app without your own files. They are raws shared
-by photographers on [PIXLS.US Play Raw](https://discuss.pixls.us/c/processing/playraw) under CC BY-SA 4.0 (one CC0),
-listed with credits in `src/samples.ts`; each photo's author and licence show in the Photo panel. Portraits are limited
-to staged shoots and self-portraits posted for others to edit. The raws are not stored here: `/api/sample` fetches a
+The open screen offers 53 sample raws to try the app without your own files, in four groups (portraits, landscapes,
+city & night, animals & nature), including a few sets of several frames from one shoot that open together, which are
+good for trying culling. They are raws shared by photographers on [PIXLS.US Play Raw](https://discuss.pixls.us/c/processing/playraw)
+under CC BY-SA 4.0 (one CC0), mostly chosen from the community's most-liked threads, listed with credits in
+`src/samples.ts`; each photo's author and licence show in the Photo panel. People are limited to staged shoots and
+self-portraits posted for others to edit: no candid strangers and no children. The raws are not stored here: `/api/sample` fetches a
 listed file from PIXLS.US the first time it is opened, caches it on disk and tells browsers to cache it for a year.
 Only the small preview thumbnails in `public/samples/` are in the repo.
 

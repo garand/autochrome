@@ -553,7 +553,8 @@ export async function openSamples(list: Sample[], title: string) {
   reset(); S.source = { kind: 'files' }; S.title = title
   const url = (s: Sample) => '/api/sample?id=' + s.id
   const get = async (s: Sample, range?: string) => { const r = await fetch(url(s), range ? { headers: { range } } : undefined); if (!r.ok) throw new Error((await r.json().catch(() => null))?.error || `Could not load ${s.file}`); return r.arrayBuffer() }
-  await addEntries(list.map(s => ({ name: s.file, size: s.size, credit: s, load: () => get(s), read: (o: number, l: number) => get(s, `bytes=${o}-${o + l - 1}`) })))
+  const dup = (s: Sample) => list.filter(x => x.file.toLowerCase() === s.file.toLowerCase()).length > 1   // two threads can share a file name
+  await addEntries(list.map(s => ({ name: dup(s) ? `${s.id}_${s.file}` : s.file, size: s.size, credit: s, load: () => get(s), read: (o: number, l: number) => get(s, `bytes=${o}-${o + l - 1}`) })))
 }
 /* Fallback for browsers without the picker: an <input webkitdirectory> list. Read-only, so edits save in this browser and exports download as a zip. */
 export async function openFolderFiles(files: FileList) {

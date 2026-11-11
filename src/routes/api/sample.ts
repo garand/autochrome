@@ -10,7 +10,7 @@ import { fail, handle } from '../../server/fs'
    Only ids from SAMPLES are served, so this is not an open proxy. Each file is fetched from PIXLS.US once and
    kept on local disk; browsers are told to cache it for a year, so PIXLS.US sees as little traffic as possible. */
 const CACHE = path.resolve(process.env.AUTOCHROME_SAMPLE_CACHE || path.join(os.tmpdir(), 'autochrome-samples'))
-const inflight = new Map<number, Promise<string>>()
+const inflight = new Map<string, Promise<string>>()
 
 async function cached(s: Sample) {
   const file = path.join(CACHE, `${s.id}-${s.file}`)
@@ -37,7 +37,7 @@ export const Route = createFileRoute('/api/sample')({
   server: {
     handlers: {
       GET: ({ request }) => handle(async () => {
-        const id = Number(new URL(request.url).searchParams.get('id')), s = SAMPLES.find(x => x.id === id)
+        const id = new URL(request.url).searchParams.get('id'), s = SAMPLES.find(x => x.id === id)
         if (!s) fail(404, 'No such sample')
         const file = await cached(s)
         const base = { 'content-type': 'application/octet-stream', 'cache-control': 'public, max-age=31536000, immutable', 'accept-ranges': 'bytes' }

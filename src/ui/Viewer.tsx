@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import * as A from '../app/store'
 import { S, cur, useTopic } from '../app/store'
 import { LABELS } from '../engine/core'
-import { PIXLS, SAMPLES, type Sample } from '../samples'
+import { PIXLS, SAMPLES, SAMPLE_KINDS, type Sample } from '../samples'
 import { Icon, IconBtn, Seg } from './widgets'
 
 /* crop rectangle, shown while the crop tool is active (the canvas then shows the whole frame) */
@@ -65,15 +65,23 @@ function MaskOverlay() {
 /* Sample raws from the PIXLS.US Play Raw community, to try the app without your own photos.
    Click one to open it on its own, or open the whole set to try shoot-wide editing and culling. */
 function Samples({ busy, run }: { busy: boolean; run: (f: () => Promise<unknown>) => void }) {
-  const [kind, setKind] = useState<Sample['kind']>('portrait'), list = SAMPLES.filter(s => s.kind === kind)
-  const label = kind === 'portrait' ? 'Sample portraits' : 'Sample landscapes'
+  const kinds = SAMPLE_KINDS.filter(([k]) => SAMPLES.some(s => s.kind === k)), [kind, setKind] = useState(kinds[0]?.[0])
+  const list = SAMPLES.filter(s => s.kind === kind), label = 'Sample ' + (kinds.find(k => k[0] === kind)?.[1] || '').toLowerCase()
+  // a set is several raws from one shoot (a series or a burst); it opens as one shoot
+  const groups: Sample[][] = []
+  for (const s of list) { const g = s.set ? groups.find(x => x[0].set === s.set) : null; if (g) g.push(s); else groups.push([s]) }
   return (
     <div className="samples">
-      <div className="samplehead"><span>Or try a sample</span><Seg value={kind} options={[['portrait', 'Portraits'], ['landscape', 'Landscapes']]} onChange={setKind} /></div>
+      <div className="samplehead"><span>Or try a sample</span>
+        <div className="chips">{kinds.map(([k, l]) => <button key={k} className={k === kind ? 'on' : ''} onClick={() => setKind(k)}>{l}</button>)}</div>
+      </div>
       <div className="samplegrid">
-        {list.map(s => <button key={s.id} className="sample" disabled={busy} onClick={() => run(() => A.openSamples([s], s.title))} title={`${s.title} · ${s.author} · ${s.license}`}>
-          <img src={`/samples/${s.id}.jpg`} alt={s.title} width={s.thumb[0]} height={s.thumb[1]} loading="lazy" decoding="async" />
-        </button>)}
+        {groups.map(g => { const s = g[0], many = g.length > 1, title = many ? s.setTitle || s.title : s.title
+          return <button key={s.id} className={'sample' + (many ? ' set' : '')} disabled={busy} onClick={() => run(() => A.openSamples(g, title))}
+            title={`${title}${many ? ` · ${g.length} raws, opens as one shoot` : ''} · ${s.author} · ${s.license}`}>
+            <img src={`/samples/${s.id}.jpg`} alt={title} width={s.thumb[0]} height={s.thumb[1]} loading="lazy" decoding="async" />
+            {many && <b className="setn">{g.length}</b>}
+          </button> })}
       </div>
       <div className="samplefoot">
         <span>Raw files shared by photographers on <a href={PIXLS + '/c/processing/playraw'} target="_blank" rel="noopener noreferrer">PIXLS.US Play Raw</a> under Creative Commons. Each is credited in the Photo panel.</span>

@@ -311,3 +311,8 @@ svg.masks { position: absolute; inset: 0; touch-action: none; }
 .fbadges .fok { width: 16px; height: 16px; padding: 0; border-radius: 50%; background: var(--ok); color: #06140d; display: inline-flex; align-items: center; justify-content: center; }
 .fwait { position: absolute; inset: 0; background: linear-gradient(100deg, #141417 30%, #1d1d22 50%, #141417 70%); background-size: 200% 100%; animation: shimmer 1.2s linear infinite; }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.samplehead .chips { flex-wrap: wrap; justify-content: flex-end; }
+.sample { position: relative; }
+.sample.set { overflow: visible; box-shadow: 3px -3px 0 -1px #2a2a30, 6px -6px 0 -2px #222227; margin: 6px 6px 0 0; }
+.sample.set img { border-radius: 5px; }
+.sample .setn { position: absolute; right: 4px; bottom: 4px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: rgba(0, 0, 0, .72); color: #fff; font-size: 10.5px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
