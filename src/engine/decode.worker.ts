@@ -136,6 +136,46 @@ function faceData(px: Uint16Array, w: number, h: number, f: any) {
   return out
 }
 
+/* A tight, evenly exposed face crop for the face sheet: about 1.45x the face box, 224px, sRGB, as a small JPEG.
+   Each face is brightened to the same level so eyes and focus are easy to judge even in backlit frames. */
+const SHOT = 224
+async function faceShot(px: Uint16Array, w: number, h: number, f: any): Promise<Blob | null> {
+  const size = f.sx * w * 1.45, cx = f.x * w, cy = f.y * h - f.sx * w * 0.04, k = size / SHOT, buf = new Float32Array(SHOT * SHOT * 3), lums: number[] = []
+  for (let j = 0; j < SHOT; j++) for (let i = 0; i < SHOT; i++) {
+    let r = 0, g = 0, b = 0, n = 0; const sx = cx - size / 2 + i * k, sy = cy - size / 2 + j * k, st = Math.max(1, Math.round(k / 2))
+    for (let a = 0; a < k; a += st) for (let c = 0; c < k; c += st) { const x = Math.min(w - 1, Math.max(0, (sx + c) | 0)), y = Math.min(h - 1, Math.max(0, (sy + a) | 0)), q = (y * w + x) * 3; r += px[q]; g += px[q + 1]; b += px[q + 2]; n++ }
+    const o = (j * SHOT + i) * 3; buf[o] = r / n; buf[o + 1] = g / n; buf[o + 2] = b / n
+    if (Math.abs(i - SHOT / 2) < SHOT * 0.22 && Math.abs(j - SHOT / 2) < SHOT * 0.22) lums.push(0.2126 * buf[o] + 0.7152 * buf[o + 1] + 0.0722 * buf[o + 2])
+  }
+  lums.sort((a, b) => a - b); const mid = lums[lums.length >> 1] || 1, gain = Math.min(40, Math.max(0.3, 0.32 / (mid / 65535)))
+  const out = new Uint8ClampedArray(SHOT * SHOT * 4), enc = (v: number) => { v = v / 65535 * gain; v = v / (1 + v * 0.35); return 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) }
+  for (let i = 0, o = 0; i < buf.length; i += 3, o += 4) { out[o] = enc(buf[i]); out[o + 1] = enc(buf[i + 1]); out[o + 2] = enc(buf[i + 2]); out[o + 3] = 255 }
+  try { const cv = new OffscreenCanvas(SHOT, SHOT); cv.getContext('2d')!.putImageData(new ImageData(out, SHOT, SHOT), 0, 0); return await cv.convertToBlob({ type: 'image/jpeg', quality: 0.82 }) } catch { return null }
+}
+
+/* capture time from a JPEG's EXIF (DateTimeOriginal + SubSecTimeOriginal), in seconds, so JPEG bursts group too */
+function exifTime(buf: ArrayBuffer): number | undefined {
+  try {
+    const d = new DataView(buf); if (d.getUint16(0) !== 0xffd8) return
+    let o = 2
+    while (o + 4 < d.byteLength) {
+      const m = d.getUint16(o), len = d.getUint16(o + 2)
+      if (m === 0xffe1 && d.getUint32(o + 4) === 0x45786966) {
+        const t = o + 10, le = d.getUint16(t) === 0x4949, u16 = (p: number) => d.getUint16(t + p, le), u32 = (p: number) => d.getUint32(t + p, le)
+        const str = (p: number, n: number) => { let s = ''; for (let i = 0; i < n; i++) { const c = d.getUint8(t + p + i); if (!c) break; s += String.fromCharCode(c) } return s }
+        const tag = (ifd: number, id: number) => { const n = u16(ifd); for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; if (u16(e) === id) return { cnt: u32(e + 4), val: e + 8 } } }
+        const ex = tag(u32(4), 0x8769); if (!ex) return
+        const exif = u32(ex.val), dt = tag(exif, 0x9003); if (!dt) return
+        const m2 = /^(\d{4}):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/.exec(str(u32(dt.val), dt.cnt)); if (!m2) return
+        const ss = tag(exif, 0x9291), sub = ss ? parseFloat('0.' + str(ss.cnt <= 4 ? ss.val : u32(ss.val), ss.cnt).replace(/\D/g, '')) || 0 : 0   // ASCII up to 4 bytes is stored inline
+        return new Date(+m2[1], +m2[2] - 1, +m2[3], +m2[4], +m2[5], +m2[6]).getTime() / 1000 + sub
+      }
+      if ((m & 0xff00) !== 0xff00 || m === 0xffda) return
+      o += 2 + len
+    }
+  } catch { return }
+}
+
 async function decode(job: any) {
   let w: number, h: number, px: Uint16Array, meta: any = {};
   if (job.kind === 'raw') {
@@ -148,6 +188,7 @@ async function decode(job: any) {
     px = img.data instanceof Uint16Array ? img.data : new Uint16Array(img.data.buffer, img.data.byteOffset, img.data.byteLength >> 1);
     if (img.colors && img.colors !== 3) throw new Error('Unsupported channel count ' + img.colors);
   } else { // jpeg / png / webp etc: decode with the browser, linearise
+    const time = exifTime(job.buf)
     const bmp = await createImageBitmap(new Blob([job.buf]));
     let bw = bmp.width, bh = bmp.height;
     if (job.half) { bw >>= 1; bh >>= 1; }
@@ -156,7 +197,7 @@ async function decode(job: any) {
     const id = ctx.getImageData(0, 0, bw, bh).data; w = bw; h = bh; px = new Uint16Array(w * h * 3);
     // display-referred sources are scaled down 2 stops so they sit where raw data sits and share one pipeline
     for (let i = 0, o = 0; i < id.length; i += 4, o += 3) { px[o] = SRGB2LIN[id[i]] >> 2; px[o + 1] = SRGB2LIN[id[i + 1]] >> 2; px[o + 2] = SRGB2LIN[id[i + 2]] >> 2; }
-    meta = { model: 'Image file' };
+    meta = { model: 'Image file', time };
   }
   const med = downsample(px, w, h, 800);
   const out: any = { w, h, meta, half: !!job.half };
@@ -164,6 +205,7 @@ async function decode(job: any) {
   if (job.want.stats) {
     out.stats = analyse(med);
     if (job.want.faces) { out.faceCrops = out.stats.faces.map((f) => faceData(px, w, h, f)); for (const c of out.faceCrops) transfer.push(c.buffer); }
+    if (job.want.shots && out.stats.faces.length) out.faceShots = await Promise.all(out.stats.faces.map((f) => faceShot(px, w, h, f)));
   }
   if (job.want.mid) { out.mid = { w: med.w, h: med.h, data: toHalf(med), blur: lumaMap(med, 128, 3.5) }; transfer.push(out.mid.data.buffer, out.mid.blur.data.buffer); }
   if (job.want.thumb) {

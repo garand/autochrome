@@ -6,6 +6,7 @@ import { Left } from './Left'
 import { Right } from './Right'
 import { StyleBrowser } from './StyleBrowser'
 import { Toolbar, Viewer } from './Viewer'
+import { FaceSheet } from './FaceSheet'
 import { Icon, IconBtn, Modal } from './widgets'
 
 function ExportDialog({ onClose }: { onClose: () => void }) {
@@ -52,7 +53,7 @@ function CullDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-const KEYS: [string, string][] = [['← →', 'Previous / next photo'], ['P · X · U', 'Pick · reject · unflag'], ['1–5 · 0', 'Star rating · clear'], ['6–9', 'Colour label'], ['S', 'Switch all photos / this photo'], ['L', 'Browse styles'], ['G', 'Grid view'], ['Z', 'Fit / 100%'], ['\\', 'Before (hold)'], ['J', 'Clipping warnings'], ['R', 'Crop'], ['W', 'White balance picker'], ['M · ⇧M', 'Linear · radial mask'], ['O', 'Mask overlay'], ['⌘[ · ⌘]', 'Rotate'], ['⌘Z · ⇧⌘Z', 'Undo · redo'], ['⌘C · ⌘V', 'Copy · paste adjustments'], ['⌘A', 'Select all'], ['⌘E', 'Export'], ['Tab', 'Hide panels'], ['scroll · drag', 'Zoom · pan'], ['double-click', 'Reset a slider']]
+const KEYS: [string, string][] = [['← →', 'Previous / next photo'], ['P · X · U', 'Pick · reject · unflag'], ['1–5 · 0', 'Star rating · clear'], ['6–9', 'Colour label'], ['S', 'Switch all photos / this photo'], ['L', 'Browse styles'], ['G', 'Grid view'], ['F', 'Face sheet (↑ ↓ frames)'], ['Z', 'Fit / 100%'], ['\\', 'Before (hold)'], ['J', 'Clipping warnings'], ['R', 'Crop'], ['W', 'White balance picker'], ['M · ⇧M', 'Linear · radial mask'], ['O', 'Mask overlay'], ['⌘[ · ⌘]', 'Rotate'], ['⌘Z · ⇧⌘Z', 'Undo · redo'], ['⌘C · ⌘V', 'Copy · paste adjustments'], ['⌘A', 'Select all'], ['⌘E', 'Export'], ['Tab', 'Hide panels'], ['scroll · drag', 'Zoom · pan'], ['double-click', 'Reset a slider']]
 
 export default function Editor() {
   useTopic('view', 'status'); const [modal, setModal] = useState<null | 'export' | 'cull' | 'keys'>(null), [ready, setReady] = useState(false), [err, setErr] = useState('')
@@ -71,6 +72,8 @@ export default function Editor() {
       if (e.altKey) return
       const l = k.toLowerCase()
       if (k === 'ArrowRight' || k === 'ArrowLeft') { if (tag === 'INPUT') return; e.preventDefault(); A.step(k === 'ArrowRight' ? 1 : -1) }
+      else if ((k === 'ArrowDown' || k === 'ArrowUp') && S.faces) { e.preventDefault(); A.step(k === 'ArrowDown' ? 1 : -1) }
+      else if (l === 'f') A.toggle('faces')
       else if (l === 'p') A.setFlag(1); else if (l === 'x') A.setFlag(-1); else if (l === 'u') A.setFlag(0)
       else if (k >= '0' && k <= '5') A.setRating(+k); else if (k >= '6' && k <= '9') A.setLabel(+k - 5)
       else if (k === '\\') A.toggle('before', true); else if (l === 'z') A.setZoom(S.zoom === 'fit' ? 1 : 'fit'); else if (l === 'g') A.toggle('grid'); else if (l === 'j') A.toggle('clip'); else if (l === 'o') A.toggle('showMask')
@@ -79,14 +82,14 @@ export default function Editor() {
       else if (l === 's') A.setScope(S.scope === 'project' ? 'photo' : 'project'); else if (l === 'l' && S.cur) { S.browser = 'styles'; A.emit('view') }
       else if (k === 'Tab') { e.preventDefault(); A.toggle('panels') } else if (k === '?') setModal('keys')
       else if ((k === 'Delete' || k === 'Backspace') && S.maskSel >= 0 && (S.tool === 'linear' || S.tool === 'radial')) A.removeMask(S.maskSel)
-      else if (k === 'Escape' || k === 'Enter') { if (S.tool !== 'select') A.setTool('select'); else if (S.grid) A.toggle('grid', false) }
+      else if (k === 'Escape' || k === 'Enter') { if (S.tool !== 'select') A.setTool('select'); else if (S.faces) A.toggle('faces', false); else if (S.grid) A.toggle('grid', false) }
     }
     const up = (e: KeyboardEvent) => { if (e.key === '\\') A.toggle('before', false) }
     window.addEventListener('keydown', down); window.addEventListener('keyup', up); return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
   }, [modal])
   const has = S.photos.length > 0
   return (
-    <div id="app" className={(S.grid && has ? 'grid ' : '') + (S.panels ? '' : 'nopanels ') + (has ? 'loaded' : '')} onDragOver={e => e.preventDefault()} onDrop={e => { if (!(e.target as HTMLElement).closest('#viewer')) A.handleDrop(e.nativeEvent) }}>
+    <div id="app" className={(S.grid && has ? 'grid ' : '') + (S.faces && has ? 'sheet ' : '') + (S.panels ? '' : 'nopanels ') + (has ? 'loaded' : '')} onDragOver={e => e.preventDefault()} onDrop={e => { if (!(e.target as HTMLElement).closest('#viewer')) A.handleDrop(e.nativeEvent) }}>
       <header id="top">
         <div className="brand"><span className="logo" />Autochrome</div>
         {has && <button className="btn" onClick={() => { if (confirm('Close this shoot? Your edits are saved.')) location.reload() }} title="Open another folder"><Icon name="folder" size={14} /> {S.title}</button>}
@@ -98,7 +101,7 @@ export default function Editor() {
         {has && <button className="btn primary" onClick={() => setModal('export')}><Icon name="export" size={14} /> Export</button>}
       </header>
       <Left />
-      <main id="center"><Viewer /><Toolbar /></main>
+      <main id="center"><Viewer />{S.faces && has && <FaceSheet />}<Toolbar /></main>
       <Right />
       <Film onAutoCull={() => setModal('cull')} />
       {S.browser && cur() && <StyleBrowser />}

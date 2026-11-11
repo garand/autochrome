@@ -26,13 +26,14 @@ export interface Photo {
   stats: any; meta: any; dim: number[] | null; cull: any; t: any; mid: any; thumb: HTMLCanvasElement
   done?: boolean; analysing?: boolean; queued?: boolean; error?: string; dirty?: boolean; visible?: boolean; midAt?: number
   credit?: Sample   // set for the built-in samples, so the photographer is credited
+  faceShots?: string[]   // tight face crops (object URLs), in the order of stats.faces
 }
 export const S = {
   photos: [] as Photo[], byName: new Map<string, Photo>(), cur: null as string | null, multi: new Set<string>(),
   scope: 'project' as 'project' | 'photo', source: null as any, title: '', key: null as string | null,
   proj: { settings: clone(DEF) as Record<string, any>, autoExposure: true, autoWB: false },
   tool: 'select' as 'select' | 'crop' | 'wb' | 'linear' | 'radial', zoom: 'fit' as 'fit' | number, pan: { x: 0.5, y: 0.5 },
-  before: false, grid: false, clip: false, showMask: false, maskSel: -1, hslSel: 'orange', curveCh: 'm', panels: true, filter: 'all',
+  before: false, grid: false, faces: false, advance: true, clip: false, showMask: false, maskSel: -1, hslSel: 'orange', curveCh: 'm', panels: true, filter: 'all',
   preview: null as null | { s: any }, browser: null as null | 'styles', modal: null as null | string,
   history: [] as { label: string; json: string; key?: string; at: number }[], hIdx: -1, clipboard: null as any,
   analysed: 0, checked: 0, exporting: false, busy: false, lay: null as any, flash: '', lutDir: '',
@@ -192,9 +193,58 @@ async function pumpFaces() {
   }
   faceBusy = false
 }
-export function autoCull(o: { pickBest: boolean; rejectBlinks: boolean; rejectSoft: boolean; gap: number }) {
+/* ------------------------------------------------------------------ culling helpers */
+/* photos taken within `gap` seconds of each other, in shoot order */
+export function bursts(gap = 3, list: Photo[] = S.photos) {
   const groups: Photo[][] = []; let prev: Photo | null = null
-  for (const p of S.photos) { const t = p.meta?.time, pt = prev?.meta?.time; if (prev && t != null && pt != null && Math.abs(t - pt) <= o.gap) groups[groups.length - 1].push(p); else groups.push([p]); prev = p }
+  for (const p of list) { const t = p.meta?.time, pt = prev?.meta?.time; if (prev && t != null && pt != null && Math.abs(t - pt) <= gap) groups[groups.length - 1].push(p); else groups.push([p]); prev = p }
+  return groups
+}
+/* the frames the face sheet shows: the selection if several are selected, else the current photo's burst */
+export function sheetFrames() {
+  const p = cur(); if (!p) return []
+  if (S.multi.size > 1) return S.photos.filter(q => S.multi.has(q.name))
+  return bursts(3, visiblePhotos()).find(g => g.includes(p)) || [p]
+}
+/* line people up across frames: each face goes to the nearest column of the frame with the most faces */
+export function faceColumns(frames: Photo[]) {
+  if (frames.some(p => p.meta?.time != null) && bursts(3, frames).length > 1) {   // different scenes: people do not correspond, so just list each frame's faces
+    const rows = frames.map(p => (p.stats?.faces || []).map((f: any, i: number) => ({ x: f.x, i })).sort((a: any, b: any) => a.x - b.x).map((o: any) => o.i as number | null))
+    const cols = Math.max(0, ...rows.map(r => r.length)); return { cols, rows: rows.map(r => [...r, ...Array(cols - r.length).fill(undefined)]), aligned: false }
+  }
+  const ref = frames.reduce((a, b) => ((b.stats?.faces?.length || 0) > (a.stats?.faces?.length || 0) ? b : a), frames[0])
+  const cols: { x: number; y: number }[] = [...(ref?.stats?.faces || [])].map((f: any) => ({ x: f.x, y: f.y })).sort((a, b) => a.x - b.x)
+  const rows = frames.map(p => {
+    const faces: any[] = p.stats?.faces || [], cells: (number | null)[] = cols.map(() => null)
+    const order = faces.map((f, i) => ({ f, i })).sort((a, b) => a.f.x - b.f.x)
+    for (const { f, i } of order) {
+      let best = -1, bd = 0.18
+      cols.forEach((c, k) => { const d = Math.hypot(c.x - f.x, (c.y - f.y) * 0.7); if (cells[k] == null && d < bd) { bd = d; best = k } })
+      if (best < 0) { cols.push({ x: f.x, y: f.y }); cells.push(i) } else cells[best] = i
+    }
+    return cells
+  })
+  return { cols: cols.length, rows: rows.map(r => [...r, ...Array(cols.length - r.length).fill(null)]), aligned: true }
+}
+/* after a pick, reject or rating, move on to the next photo (Lightroom's auto-advance) */
+function advance() { if (!S.advance) return; const a = visiblePhotos(), i = a.findIndex(q => q.name === S.cur); if (i >= 0 && i < a.length - 1) select(a[i + 1].name) }
+export function setAdvance(on: boolean) { S.advance = on; try { localStorage.setItem('autochrome:advance', on ? '1' : '0') } catch {} emit('view') }
+let cheered = ''
+/* a small acknowledgement when every photo in the shoot has a decision */
+function celebrate() {
+  const n = S.photos.length, open = S.photos.filter(p => !p.flag).length, key = S.key + ':' + n
+  if (n > 1 && open === 0 && cheered !== key) { cheered = key; const picks = S.photos.filter(p => p.flag === 1).length; flash(`Every photo decided: ${picks} pick${picks === 1 ? '' : 's'} from ${n}. Nice work.`) }
+}
+/* jump to 100% on one face of a photo */
+export async function zoomToFace(p: Photo, i: number) {
+  const f = p.stats?.faces?.[i]; if (!f) return
+  S.faces = false; S.grid = false; if (S.cur !== p.name) await select(p.name)
+  const g = p.crop || FULL; S.pan = p.orient.rot ? { x: 0.5, y: 0.5 } : { x: clamp((f.x - (g.cx - g.w / 2)) / g.w), y: clamp((f.y - (g.cy - g.h / 2)) / g.h) }
+  S.zoom = 1; if (S.tool === 'crop') setTool('select'); emit('view', 'film', 'panel'); requestRender(); wantFull()
+}
+
+export function autoCull(o: { pickBest: boolean; rejectBlinks: boolean; rejectSoft: boolean; gap: number }) {
+  const groups = bursts(o.gap)
   let picks = 0, rejects = 0
   for (const g of groups) {
     const scored = g.filter(p => p.cull?.n > 0); if (!scored.length) continue
@@ -243,6 +293,7 @@ function takeResult(p: Photo, r: any) {
   if (r.stats && (!p.stats || (r.faceCrops && !p.cull && !faceQ.some(q => q.p === p) && facePending !== p))) { p.stats = r.stats; fresh = true }
   if (r.meta && !p.meta) p.meta = r.meta
   if (r.faceCrops && !p.cull && !faceQ.some(q => q.p === p) && facePending !== p) { if (r.faceCrops.length) { faceQ.push({ p, crops: r.faceCrops }); pumpFaces() } else { p.cull = { n: 0, faces: [] }; countChecked() } }
+  if (r.faceShots) { for (const u of p.faceShots || []) if (u) URL.revokeObjectURL(u); p.faceShots = r.faceShots.map((b: Blob | null) => (b ? URL.createObjectURL(b) : '')) }
   if (r.thumb) { p.t = { w: r.thumb.w, h: r.thumb.h, data: r.thumb.data, blur: r.thumbBlur }; markThumb(p) }
   if (r.mid) { p.mid = r.mid; p.midAt = performance.now(); const keep = S.photos.filter(q => q.mid).sort((a, b) => b.midAt! - a.midAt!); for (const q of keep.slice(8)) q.mid = null }
   if (!p.done) { p.done = true; S.analysed++; pool.cancel(j => j.key === 'an:' + p.name) }
@@ -251,7 +302,7 @@ function takeResult(p: Photo, r: any) {
 }
 function analyse(p: Photo, prio: number) {
   if (p.done || p.analysing) return; p.analysing = true
-  pool.run(decodeJob(p, true, { stats: true, faces: !p.cull, thumb: true }), prio, 'an:' + p.name).then(r => takeResult(p, r))
+  pool.run(decodeJob(p, true, { stats: true, faces: !p.cull, shots: true, thumb: true }), prio, 'an:' + p.name).then(r => takeResult(p, r))
     .catch(e => { if (e.message !== 'cancelled') { p.error = e.message; if (!p.done) { p.done = true; S.analysed++ } emit('status', 'film') } }).finally(() => { p.analysing = false })
 }
 const texCache = new Map<string, { img: GpuImage; full: boolean; at: number }>()
@@ -350,7 +401,8 @@ export function setTool(t: typeof S.tool) {
   if (t === 'linear' || t === 'radial') S.showMask = true
   emit('view', 'panel', 'film'); requestRender()
 }
-export function toggle(k: 'before' | 'grid' | 'clip' | 'showMask' | 'panels', on?: boolean) { (S as any)[k] = on ?? !(S as any)[k]; emit('view', 'film', 'panel'); requestRender() }
+export function toggle(k: 'before' | 'grid' | 'faces' | 'clip' | 'showMask' | 'panels', on?: boolean) {
+  if (k === 'faces' && (on ?? !S.faces)) S.grid = false; if (k === "grid" && (on ?? !S.grid)) S.faces = false; (S as any)[k] = on ?? !(S as any)[k]; emit('view', 'film', 'panel'); requestRender() }
 
 /* crop + orientation (per photo) */
 const ensureCrop = (p: Photo) => (p.crop ||= { ...FULL, aspect: 'orig' })
@@ -398,8 +450,8 @@ export function pickWB(x: number, y: number) {
 }
 
 /* flags */
-export function setFlag(v: number) { for (const p of targets()) p.flag = p.flag === v ? 0 : v; emit('film', 'status', 'view'); commit(v === 1 ? 'Pick' : v === -1 ? 'Reject' : 'Unflag', 'flag') }
-export function setRating(v: number) { for (const p of targets()) p.rating = v; emit('film', 'view'); commit('Rating ' + v, 'rating') }
+export function setFlag(v: number) { const many = S.multi.size > 1; for (const p of targets()) p.flag = p.flag === v ? 0 : v; emit('film', 'status', 'view'); commit(v === 1 ? 'Pick' : v === -1 ? 'Reject' : 'Unflag', 'flag'); if (v && !many) advance(); celebrate() }
+export function setRating(v: number) { const many = S.multi.size > 1; for (const p of targets()) p.rating = v; emit('film', 'view'); commit('Rating ' + v, 'rating'); if (v && !many) advance() }
 export function setLabel(v: number) { for (const p of targets()) p.label = p.label === v ? 0 : v; emit('film', 'view'); commit('Colour label', 'label') }
 export function selectAll() { for (const p of visiblePhotos()) S.multi.add(p.name); emit('film', 'panel') }
 
@@ -606,7 +658,7 @@ export const stopExport = () => { S.exporting = false }
 let booted: Promise<void> | null = null
 export function boot() {
   return (booted ||= (async () => {
-    loadStyles()
+    loadStyles(); try { S.advance = localStorage.getItem('autochrome:advance') !== '0' } catch {}
     await pool.init(); loadServerLuts()
     window.addEventListener('beforeunload', () => { saveNow() })
     ;(window as any).__rs = { S, texCache, select, setVal, autoFor, eff, runExport, autoCull }

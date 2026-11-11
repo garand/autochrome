@@ -115,7 +115,7 @@ export function Toolbar() {
   const msg = S.flash || (S.busy ? 'Developing…' : S.tool === 'wb' ? 'Click something that should be neutral grey' : S.tool === 'linear' || S.tool === 'radial' ? 'Drag on the photo to place a gradient' : S.tool === 'crop' ? 'Drag the frame, Enter when done' : '')
   return (
     <div id="toolbar">
-      {!S.grid && <div className="grp">
+      {!S.grid && !S.faces && <div className="grp">
         <IconBtn icon="hand" title="Pan and zoom (V)" on={S.tool === 'select'} onClick={() => A.setTool('select')} />
         <IconBtn icon="crop" title="Crop and straighten (R)" on={S.tool === 'crop'} onClick={tool('crop')} />
         <IconBtn icon="dropper" title="White balance picker (W)" on={S.tool === 'wb'} onClick={tool('wb')} />
@@ -126,19 +126,21 @@ export function Toolbar() {
         <IconBtn icon="flag" title="Pick (P)" on={p?.flag === 1} onClick={() => A.setFlag(1)} data-tone="ok" />
         <IconBtn icon="reject" title="Reject (X)" on={p?.flag === -1} onClick={() => A.setFlag(-1)} data-tone="bad" />
         <span className="stars" role="radiogroup" aria-label="Rating">{[1, 2, 3, 4, 5].map(n => <button key={n} className={p && p.rating >= n ? 'on' : ''} title={`${n} star${n > 1 ? 's' : ''} (${n})`} onClick={() => A.setRating(p?.rating === n ? 0 : n)}><Icon name="star" size={14} /></button>)}</span>
+        <IconBtn icon="advance" title={`Auto-advance: ${S.advance ? 'on' : 'off'}. Move to the next photo after a pick, reject or rating`} on={S.advance} onClick={() => A.setAdvance(!S.advance)} />
         <span className="labels">{LABELS.slice(1).map((c, i) => <button key={i} className={p?.label === i + 1 ? 'on' : ''} style={{ '--c': c } as any} title={`Colour label (${i + 6})`} onClick={() => A.setLabel(i + 1)} />)}</span>
       </div>
       <span className="grow" />
       {/* keyed on the text so each new message fades in instead of swapping abruptly */}
       {msg && <span className="msg" key={msg}>{msg}</span>}
       <div className="grp">
-        {!S.grid && <>
+        {!S.grid && !S.faces && <>
         <IconBtn icon="clip" title="Clipping warnings (J)" on={S.clip} onClick={() => A.toggle('clip')} />
         <IconBtn icon="compare" title="Hold to see the unedited photo (\)" on={S.before} onPointerDown={() => A.toggle('before', true)} onPointerUp={() => A.toggle('before', false)} onPointerLeave={() => S.before && A.toggle('before', false)} />
         <select className="sel" value={z === 'fit' ? 'fit' : [0.5, 1, 2].includes(z) ? String(z) : 'x'} onChange={e => A.setZoom(e.target.value === 'fit' ? 'fit' : +e.target.value)} title="Zoom (Z toggles fit and 100%)" aria-label="Zoom">
           <option value="fit">Fit</option><option value="0.5">50%</option><option value="1">100%</option><option value="2">200%</option>{z !== 'fit' && ![0.5, 1, 2].includes(z) && <option value="x">{Math.round(z * 100)}%</option>}
         </select>
         </>}
+        <IconBtn icon="face" title="Face sheet: every face in this burst, side by side (F)" on={S.faces} onClick={() => A.toggle('faces')} />
         <IconBtn icon="grid" title="Grid view (G)" on={S.grid} onClick={() => A.toggle('grid')} />
         <IconBtn icon="panels" title="Hide or show the side panels (Tab)" on={!S.panels} onClick={() => A.toggle('panels')} />
       </div>

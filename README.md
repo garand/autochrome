@@ -50,6 +50,16 @@ Only the small preview thumbnails in `public/samples/` are in the repo.
 Settings are project-wide with per-photo overrides: a photo stores only the keys that differ from the shoot.
 Crop, rotation and masks are always per photo.
 
+## Culling
+
+- **Face sheet (F):** the current burst (or the selected photos) as rows of frames and columns of people, each face
+  cropped tight and evenly brightened, with eyes-open, focus and at-camera checks and the best frame marked. People
+  are lined up across the frames of a burst. ↑ ↓ move between frames, P / X decide, clicking a face opens it at 100%.
+- **Auto-advance:** after a pick, reject or rating the next photo comes up (toggle in the toolbar).
+- **Bursts** are separated in the filmstrip (frames within 3 seconds, from raw metadata or JPEG EXIF), and a progress
+  bar shows how many photos have a decision.
+- **Auto cull** picks the best frame of each burst and can reject blinks and soft frames.
+
 ## Styles
 
 A style is a starting point with two optional parts: a colour (a film emulation or LUT) and a finish (changes to
