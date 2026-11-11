@@ -82,9 +82,12 @@ function analyse(med: any) {
   Object.assign(stats, { median: pct(sorted, 0.5), p01: pct(sorted, 0.01), p99: pct(sorted, 0.99), p999: pct(sorted, 0.999), geo: Math.exp(geo / wsum), faces: [] });
   // face detection on an auto-levelled, gamma-encoded grey image
   const hi = Math.max(stats.p99, 1e-4), grey = new Uint8Array(n);
-  for (let i = 0; i < n; i++) grey[i] = Math.min(255, 255 * Math.pow(Math.min(1, Y[i] / hi), 1 / 2.2));
-  let dets = runCascade({ pixels: grey, nrows: h, ncols: w, ldim: w }, classify, { shiftfactor: 0.1, minsize: Math.max(18, Math.round(Math.max(w, h) * 0.03)), maxsize: Math.round(Math.min(w, h) * 0.9), scalefactor: 1.1 });
-  dets = clusterDetections(dets, 0.2).filter(d => d[3] > 30).sort((a, b) => b[3] - a[3]).slice(0, 8);
+  // a cube-root curve keeps dark, backlit faces from collapsing into a few grey levels
+  for (let i = 0; i < n; i++) grey[i] = Math.min(255, 255 * Math.cbrt(Math.min(1, Y[i] / hi)));
+  // a fine scan (5% scale steps, 5% shifts): true faces then score in the hundreds once clustered, while
+  // foliage and texture stay well under 45 (measured on the sample set), so the cut-off can be generous
+  let dets = runCascade({ pixels: grey, nrows: h, ncols: w, ldim: w }, classify, { shiftfactor: 0.05, minsize: Math.max(20, Math.round(Math.max(w, h) * 0.03)), maxsize: Math.round(Math.min(w, h) * 0.95), scalefactor: 1.05 });
+  dets = clusterDetections(dets, 0.2).filter(d => d[3] > 45).sort((a, b) => b[3] - a[3]).slice(0, 12);
   const skin: number[][] = [];
   for (const [r, c, s, q] of dets) {
     // sample the central part of the face box, keep the mid-bright pixels (skips hair, glasses, shadow)
