@@ -23,7 +23,7 @@ export function StyleBrowser() {
         <b className="btitle">Styles</b>
         <div className="chips">{['All', ...styleCats()].map(c => <button key={c} className={c === cat ? 'on' : ''} onClick={() => setCat(c)}>{c}</button>)}</div>
         <span className="grow" />
-        <span className="hint">{p?.name} · ← → changes photo · applies to {S.scope === 'project' ? 'the whole shoot' : 'this photo'}</span>
+        <span className="hint">{p?.name} · ← → changes photo · applies to {S.scope === 'project' ? 'the whole shoot' : S.scope === 'scene' ? A.sceneOf(p)?.name || 'this scene' : 'this photo'}</span>
         <input type="range" min={150} max={420} value={size} onChange={e => setSize(+e.target.value)} title="Tile size" aria-label="Tile size" style={{ width: 90, '--a': '0%', '--b': (size - 150) / 270 * 100 + '%' } as any} />
         <button className="btn" onClick={close}><Icon name="reject" size={13} /> Close</button>
       </header>

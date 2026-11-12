@@ -19,6 +19,7 @@ Use a Chromium browser (Chrome, Edge, Arc). The app needs WebGL2 and Web Workers
 | --- | --- | --- |
 | `AUTOCHROME_LUTS` | `./luts` | Folder of `.cube` LUTs to list under Looks > My LUTs |
 | `AUTOCHROME_SAMPLE_CACHE` | system temp folder | Where the server caches sample raws fetched from PIXLS.US |
+| `AUTOCHROME_MODEL_CACHE` | system temp folder | Where the server caches the lens blur models fetched from Hugging Face |
 | `HOST`, `PORT` | `127.0.0.1`, `3000` | Where the production server listens |
 
 Your photos never go to the server. Choose a folder (or drop one onto the window) and the browser reads the
@@ -62,6 +63,32 @@ Crop, rotation and masks are always per photo.
   bar shows how many photos have a decision.
 - **Auto cull** picks the best frame of each burst and can reject blinks and soft frames.
 
+## Scenes
+
+A shoot often moves between spots: another backdrop, the other side of the street, indoors and out. Once every photo
+is metered, Autochrome groups them into scenes by what they look like (the colours in the frame, the tonal spread,
+a coarse layout and, for raws, how bright the place really was from the exposure settings) and when they were taken
+(a burst is always one spot, a long pause makes a new spot more likely). See `src/engine/scenes.ts`.
+
+- **Settings have three levels:** shoot, scene, photo. Each stores only what differs from the level above, so a scene
+  can be warmed or brightened as a whole and still follows later changes to the shoot. The scope switch (S cycles it)
+  picks which level the sliders edit; blue dots mark a scene's own values, orange a photo's.
+- **Filmstrip:** scene chips show one scene at a time, labels mark where each scene starts, and photos can be dragged
+  onto a chip to move them.
+- **Scene board (N):** every scene as a card. Type over a name to rename it, drag photos between scenes or onto
+  New scene, drag a scene by its handle onto another to merge them. Regroup sorts the whole shoot again, keeping
+  names and adjustments where most of a scene's photos go.
+- **Adding photos** never reshuffles scenes you have tuned: new photos join the scene they look like, or form new ones.
+
+## Sessions
+
+Every folder or sample set you open is remembered in the browser (IndexedDB, `src/app/sessions.ts`): edits, scenes,
+flags, the undo history, and which photo, filter and view you were on. The last shoot reopens by itself when you come
+back. Chrome may ask once to allow access to the folder again (Continue on the start screen), unless you chose to
+allow it on every visit. Closing a shoot from its title button keeps it under Recent on the start screen. Loose files
+(Add files…, or the folder fallback in browsers without the folder picker) have nothing to reopen them by, so they
+are not kept as sessions; their edits still save in the browser as before.
+
 ## Styles
 
 A style is a starting point with two optional parts: a colour (a film emulation or LUT) and a finish (changes to
@@ -75,6 +102,17 @@ styles they are modelled on. They are not the manufacturers' or any preset vendo
 `.cube` files in `./luts` or import them from the Style section. Lightroom `.xmp` presets import as styles too;
 the common sliders, HSL, colour grading and tone curve are mapped across, which gets close but is not an exact
 match because the two engines differ.
+
+## Tinted glasses
+
+Photochromic lenses that darken outdoors, tinted lenses and coatings that reflect the trees can be cleared in the
+Faces section: click the people wearing them. For each face the lens apertures are traced along the inner rim of the
+frame (`src/engine/lensAperture.ts`), so only the glass is corrected, never the frame. Inside them the tint is undone
+with a per-channel gain measured from skin just inside and just outside the lower rim; where a smoothed lean towards
+the reflection colour shows a reflection, the pixel is rebuilt from the channels the reflection touches least, with
+the colour of clean skin from the same lens (nearly neutral over the eye). A marked person is followed through the rest
+of the shoot by a face embedding (Human's face description model); in a group each marked person claims only their
+best-matching face, and any photo can turn the fix on or off for a face by hand. See `src/engine/glasses.ts`.
 
 ## White balance
 
@@ -92,8 +130,15 @@ same perceived amount. JPEGs keep a relative scale.
 - Face checks: profiles, tinted glasses and lowered eyes can read as "eyes closed". Focus thresholds
   (`FOCUS` in `src/app/store.ts`) were set on one shoot from one camera; tune them for yours.
 - "Match skin tones" is tuned on lighter skin.
+- Lens blur needs WebGPU with 16-bit floats for the subject model (current Chrome, Edge and Arc). Without it the depth
+  model runs on the CPU and there is no subject matte, so subject edges are softer. Depth is relative, so very flat
+  scenes or glass and mirrors can be read wrong; check with Visualize depth.
+- The glasses fix needs the face mesh to read the eyes, so faces in profile or very small faces are skipped. Blurry
+  or very small faces can be outlined a few pixels off, rimless glasses are not handled, sharp reflections of trees
+  across the eye are toned down rather than removed, and reflections the colour of skin are left alone.
 
 ## Third-party
 
 LibRaw via `libraw-wasm-nothread` (LGPL-2.1 / CDDL-1.0), Human by Vladimir Mandic (MIT, models in
-`public/models`), pico.js face detector (MIT, cascade in `public/facefinder.bin`), TanStack Start, React.
+`public/models`), pico.js face detector (MIT, cascade in `public/facefinder.bin`), ONNX Runtime Web (MIT),
+Depth Anything V2 Small (Apache-2.0) and BEN2 (MIT) via `onnx-community` on Hugging Face, TanStack Start, React.

@@ -26,12 +26,15 @@ const fmt = (v: number, step: number, signed: boolean) => (step < 1 ? (signed &&
 const snap = (v: number, step: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v / step) * step))
 
 /* A DialKit-style slider: the whole row is the control. Drag anywhere on it to scrub (Shift for fine), click the
-   number to type, double-click to reset, arrow keys step (Shift x10). Two-way values fill from the centre. */
-export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swatch, show, parse, note, onChange, onCommit, onReset, onClearOv }: {
+   number to type, double-click to reset, arrow keys step (Shift x10). Two-way values fill from the centre.
+   With onAuto, an A appears on hover and Shift+double-click sets the control automatically (as in Lightroom). */
+export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, ovScene, swatch, show, parse, note, onChange, onCommit, onReset, onClearOv, onAuto }: {
   label: string; value: number; min: number; max: number; step?: number; def?: number; cls?: string; ov?: boolean; swatch?: string
+  ovScene?: boolean   // the difference comes from the photo's scene rather than the photo itself
   show?: (v: number) => string; parse?: (text: string) => number   // custom display (e.g. 5200 K) and the reverse for typed values
   note?: string                                                    // a quiet second value, e.g. the auto exposure offset
   onChange: (v: number) => void; onCommit?: (v: number) => void; onReset?: () => void; onClearOv?: () => void
+  onAuto?: () => void
 }) {
   const signed = min < 0 && max > 0, [text, setText] = useState<string | null>(null), [drag, setDrag] = useState(false), [settle, setSettle] = useState(false)
   const last = useRef(value), d = useRef<{ x: number; v: number; w: number; moved: boolean } | null>(null), box = useRef<HTMLDivElement>(null); last.current = value
@@ -40,7 +43,7 @@ export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swa
   const reset = () => { setSettle(true); setTimeout(() => setSettle(false), 260); if (onReset) onReset(); else { onChange(def); onCommit?.(def) } }
   const typed = () => { if (text == null) return; const v = parse ? parse(text) : parseFloat(text); setText(null); if (!isNaN(v)) { const c = Math.min(max, Math.max(min, v)); onChange(c); onCommit?.(c) } }
   const down = (e: React.PointerEvent) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('.dval, .dot')) return
+    if (e.button !== 0 || (e.target as HTMLElement).closest('.dval, .dot, .dauto')) return
     d.current = { x: e.clientX, v: value, w: box.current!.getBoundingClientRect().width, moved: false }; box.current!.setPointerCapture(e.pointerId); box.current!.focus()
   }
   const move = (e: React.PointerEvent) => {
@@ -57,17 +60,18 @@ export function Slider({ label, value, min, max, step = 1, def = 0, cls, ov, swa
     else if (k === 'Backspace' || k === 'Delete') { e.preventDefault(); reset() }
   }
   return (
-    <div ref={box} className={'dial' + (cls ? ' ' + cls : '') + (ov ? ' ov' : '') + (value !== def ? ' changed' : '') + (drag ? ' dragging' : '') + (settle ? ' settle' : '')}
+    <div ref={box} className={'dial' + (cls ? ' ' + cls : '') + (ov ? ' ov' : '') + (ov && ovScene ? ' ovs' : '') + (value !== def ? ' changed' : '') + (drag ? ' dragging' : '') + (settle ? ' settle' : '')}
       role="slider" tabIndex={0} aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={value} aria-valuetext={label2}
-      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDoubleClick={e => { if (!(e.target as HTMLElement).closest('.dval')) reset() }} onKeyDown={key} title="Drag to adjust, Shift for fine. Double-click to reset.">
+      onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onDoubleClick={e => { if ((e.target as HTMLElement).closest('.dval, .dauto')) return; if (e.shiftKey && onAuto) onAuto(); else reset() }} onKeyDown={key} title={'Drag to adjust, Shift for fine. Double-click to reset.' + (onAuto ? ' Shift+double-click for auto.' : '')}>
       <i className="dfill" style={{ left: Math.min(p, z) + '%', width: Math.abs(p - z) + '%' }} />
       {signed && <i className="dzero" style={{ left: z + '%' }} />}
       <i className="dedge" style={{ left: p + '%' }} />
       <span className="dlabel">
-        {onClearOv && <i className="dot" title="Set on this photo only. Click to go back to the shoot value." onClick={e => { e.stopPropagation(); onClearOv() }} />}
+        {onClearOv && <i className="dot" title={ovScene ? 'Set for this scene. Click to go back to the shoot value.' : 'Set on this photo only. Click to go back to the value above it.'} onClick={e => { e.stopPropagation(); onClearOv() }} />}
         {swatch && <i className="sw" style={{ background: swatch }} />}{label}
       </span>
       {note && <span className="dnote">{note}</span>}
+      {onAuto && text == null && <button className="dauto" tabIndex={-1} title={`Auto ${label.toLowerCase()} (Shift+double-click)`} onClick={e => { e.stopPropagation(); onAuto() }}>A</button>}
       {text != null
         ? <input className="dval editing" autoFocus value={text} onFocus={e => requestAnimationFrame(() => e.target.select())} onChange={e => setText(e.target.value)} onBlur={typed} aria-label={label + ' value'}
             onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); else if (e.key === 'Escape') { setText(null); box.current?.focus() } }} />

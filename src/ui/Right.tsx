@@ -4,14 +4,40 @@ import { DEF, KEYS, S, changedCount, clearOv, commit, cur, curS, isOv, resetKeys
 import { HSL, ID_CURVE, clamp, clone, curveLut, eq } from '../engine/core'
 import { RECIPES, YOURS, allStyles, styleById, styleCats } from '../engine/styles'
 import * as WB from '../engine/wb'
+import { BOKEH, focalRange } from '../engine/gl'
+import { checkWebGpu, type GpuCheck } from '../engine/depth'
 import { Icon, IconBtn, Pad, Section, Seg, Slider } from './widgets'
 
-/* one adjustment bound to a settings key, honouring the shoot / photo scope */
+/* one adjustment bound to a settings key, honouring the shoot / scene / photo scope */
 function Adj({ k, label, min = -100, max = 100, step = 1, cls, swatch, show, parse, note }: { k: string; label: string; min?: number; max?: number; step?: number; cls?: string; swatch?: string; show?: (v: number) => string; parse?: (t: string) => number; note?: string }) {
   const v = curS()[k]
-  return <Slider label={label} value={v} min={min} max={max} step={step} def={DEF[k]} cls={cls} swatch={swatch} show={show} parse={parse} note={note} ov={isOv(k)} onClearOv={isOv(k) ? () => clearOv(k) : undefined}
+  return <Slider label={label} value={v} min={min} max={max} step={step} def={DEF[k]} cls={cls} swatch={swatch} show={show} parse={parse} note={note} ov={isOv(k)} ovScene={A.ovLevel(k) === 'scene'} onClearOv={isOv(k) ? () => clearOv(k) : undefined}
     onChange={x => setVal(k, x)} onCommit={x => commit(`${label} ${step < 1 ? x.toFixed(2) : x}`, k)}
-    onReset={() => (S.scope === 'photo' ? clearOv(k) : (setVal(k, DEF[k]), commit('Reset ' + label)))} />
+    onReset={() => (S.scope !== 'project' ? clearOv(k) : (setVal(k, DEF[k]), commit('Reset ' + label)))}
+    onAuto={A.AUTO_KEYS.includes(k) ? () => A.autoBasic([k], 'Auto ' + label.toLowerCase()) : undefined} />
+}
+/* tinted glasses: pick the people wearing them; the fix follows each one through the shoot (see glasses.ts) */
+function Glasses() {
+  useTopic('panel', 'film')
+  const p = cur(); if (!p) return null
+  const faces: any[] = p.cull?.faces || [], on = A.glassesFaces(p), marked = S.proj.glasses.length
+  const list = faces.map((f, i) => (f?.gl ? i : -1)).filter(i => i >= 0).sort((a, b) => p.stats.faces[a].x - p.stats.faces[b].x)
+  return (
+    <>
+      <div className="sub"><span>Tinted glasses</span>{marked > 0 && <button className="gllink" title="Stop fixing glasses for everyone in the shoot" onClick={A.forgetGlasses}>Forget {marked === 1 ? '1 face' : marked + ' faces'}</button>}</div>
+      {!p.cull ? <p className="note">Checking faces…</p> : !list.length ? <p className="note">No faces in this photo with eyes clear enough to measure.</p> : (
+        <div className="glfaces">
+          {list.map(i => (
+            <button key={i} className={on.has(i) ? 'on' : ''} title={on.has(i) ? 'Glasses fixed. Click to leave them as shot in this photo' : 'Click if this person wears tinted or reflective glasses'} onClick={() => A.toggleGlasses(i)}>
+              {p.faceShots?.[i] ? <img src={p.faceShots[i]} alt="" draggable={false} /> : <span>{i + 1}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {(marked > 0 || on.size > 0) && <Adj k="glasses" label="Strength" min={0} max={150} />}
+      <p className="note">Click anyone wearing tinted, photochromic or reflective glasses. The lenses are cleared in this photo and in the rest of the shoot wherever that face appears; click again to leave a photo as shot.</p>
+    </>
+  )
 }
 const sec = (id: keyof typeof KEYS, title: string) => ({ id, title, count: changedCount(KEYS[id]), onReset: () => resetKeys(KEYS[id], 'Reset ' + title) })
 
@@ -50,7 +76,9 @@ function WhiteBalance() {
   const kfmt = (v: number) => { const K = WB.absolute(shot, v, 0).kelvin; return (K >= 10000 ? Math.round(K / 100) * 100 : Math.round(K / 10) * 10) + ' K' }
   const asShot = raw ? `As shot ${kfmt(0)} · tint ${Math.round(shot.tint)}` : 'No camera colour data in this file, so these are relative'
   return <>
-    <div className="sub"><span>White balance</span><button className={'mini' + (S.tool === 'wb' ? ' on' : '')} title="Pick a neutral grey or white in the photo (W)" onClick={() => A.setTool(S.tool === 'wb' ? 'select' : 'wb')}><Icon name="dropper" size={14} /></button></div>
+    <div className="sub"><span>White balance</span><span className="subacts">
+      <button className="mini txt" title="Set temperature and tint from the scene's light" onClick={() => A.autoBasic(['temp', 'tint'], 'Auto white balance')}>Auto</button>
+      <button className={'mini' + (S.tool === 'wb' ? ' on' : '')} title="Pick a neutral grey or white in the photo (W)" onClick={() => A.setTool(S.tool === 'wb' ? 'select' : 'wb')}><Icon name="dropper" size={14} /></button></span></div>
     <Pad cls="wb" x={s.temp} y={s.tint} xr={[Math.floor(lo), Math.ceil(hi)]} yr={[-150, 150]} title="Drag to set temperature (across) and tint (up is magenta). Shift locks an axis. Double-click for as shot."
       onChange={(x, y) => { setVal('temp', x); setVal('tint', y) }} onCommit={() => commit('White balance', 'wbpad')} onReset={() => { setVal('temp', 0); setVal('tint', 0); commit('As shot white balance') }}>
       <span className="plabel" style={{ left: 7, bottom: 5 }}>cooler</span><span className="plabel" style={{ right: 7, bottom: 5 }}>warmer</span><span className="plabel" style={{ left: 7, top: 5 }}>magenta</span>
@@ -163,6 +191,115 @@ function Wheel({ label, hk, sk }: { label: string; hk: string; sk: string }) {
   )
 }
 
+/* ---------------------------------------------------------------- lens blur */
+/* a small picture of each bokeh shape, as a highlight would render */
+function BokehGlyph({ i }: { i: number }) {
+  const c = { fill: 'currentColor' }
+  return <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden>
+    {i === 0 && <circle cx="10" cy="10" r="7" {...c} />}
+    {i === 1 && <path d="M10 3c3 2.3 3 11.7 0 14-3-2.3-3-11.7 0-14z" transform="rotate(35 10 10)" {...c} />}
+    {i === 2 && <><circle cx="10" cy="10" r="7" fill="currentColor" opacity=".3" /><circle cx="10" cy="10" r="6.1" fill="none" stroke="currentColor" strokeWidth="1.8" /></>}
+    {i === 3 && <path d="M10 3.2l5.9 3.4v6.8L10 16.8l-5.9-3.4V6.6z" strokeLinejoin="round" stroke="currentColor" strokeWidth="1.2" {...c} />}
+    {i === 4 && <path fillRule="evenodd" d="M10 3a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm0 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" {...c} />}
+  </svg>
+}
+const RAMP = ['#1c1754', '#73339e', '#ed6173', '#ffd173']   // matches depthRamp() in gl.ts: far .. near
+/* The photo's depths from far (left) to near (right), with the band that stays sharp. Its two handles set the far and
+   near edges, dragging inside the band moves it, and clicking elsewhere centres it there. */
+type BandDrag = { what: 'far' | 'near' | 'both' | 'band'; x0: number; a0: number; b0: number }
+function DepthBar() {
+  const p = cur(), d = p?.depth, s = curS(), ref = useRef<HTMLCanvasElement>(null), drag = useRef<BandDrag | null>(null)
+  const f = p ? A.focusOf(p) : 0.5, r = focalRange(s.focusRange), fa = Math.max(0, f - r), fb = Math.min(1, f + r)
+  useEffect(() => {
+    const cv = ref.current; if (!cv) return
+    const W = (cv.width = cv.clientWidth * 2), H = (cv.height = cv.clientHeight * 2), c = cv.getContext('2d')!
+    c.clearRect(0, 0, W, H); if (!d) return
+    const g = c.createLinearGradient(0, 0, W, 0); RAMP.forEach((col, i) => g.addColorStop(i / 3, col))
+    c.fillStyle = g; c.globalAlpha = 0.9; c.beginPath(); c.moveTo(0, H)
+    d.hist.forEach((v, i) => { const x = (i + 0.5) / d.hist.length * W; c.lineTo(x, H - Math.max(0.04, Math.sqrt(v)) * (H - 6)) }); c.lineTo(W, H); c.fill()
+    c.globalAlpha = 1; c.fillStyle = 'rgba(255,255,255,.17)'; c.fillRect(fa * W, 0, Math.max(2, (fb - fa) * W), H)
+    c.fillStyle = 'rgba(255,255,255,.55)'; c.fillRect(f * W - 1, 0, 2, H)
+  })
+  const at = (e: React.PointerEvent) => { const b = ref.current!.getBoundingClientRect(); return { x: Math.min(1, Math.max(0, (e.clientX - b.left) / b.width)), w: b.width } }
+  /* what a pointer at x would grab: a handle within 7 px, else the band, else empty strip */
+  const hit = (x: number, w: number): BandDrag['what'] | null => {
+    const da = Math.abs(x - fa) * w, db = Math.abs(x - fb) * w
+    if (da < 7 && db < 7) return 'both'; if (da < 7) return 'far'; if (db < 7) return 'near'
+    return x > fa && x < fb ? 'band' : null
+  }
+  const down = (e: React.PointerEvent) => {
+    if (!d || e.button !== 0) return; const { x, w } = at(e); let what = hit(x, w), a0 = fa, b0 = fb
+    if (!what) { const h = (fb - fa) / 2; a0 = Math.max(0, Math.min(1 - 2 * h, x - h)); b0 = a0 + 2 * h; A.setFocusBand(a0, b0); what = 'band' }
+    drag.current = { what, x0: x, a0, b0 }; ref.current!.setPointerCapture(e.pointerId)
+  }
+  const move = (e: React.PointerEvent) => {
+    const { x, w } = at(e), g = drag.current
+    if (!g) { if (d) { const h = hit(x, w); ref.current!.style.cursor = h === 'band' ? 'grab' : h ? 'ew-resize' : 'pointer' } return }
+    if (g.what === 'both') { if (x === g.x0) return; g.what = x < g.x0 ? 'far' : 'near' }   // two handles on one spot: the drag direction picks one
+    if (g.what === 'far') A.setFocusBand(Math.min(x, g.b0), g.b0)
+    else if (g.what === 'near') A.setFocusBand(g.a0, Math.max(x, g.a0))
+    else { const dx = Math.max(-g.a0, Math.min(1 - g.b0, x - g.x0)); A.setFocusBand(g.a0 + dx, g.b0 + dx) }
+  }
+  const up = () => { if (drag.current) { drag.current = null; A.commitFocusBand() } }
+  return (
+    <div className={'depthbar' + (d ? '' : ' empty')}>
+      <canvas ref={ref} title="Depths in this photo, far to near. The light band stays sharp: drag its handles to set how far and how near, drag inside it to move it."
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} />
+      {d && <><i className="bandh" style={{ left: fa * 100 + '%' }} /><i className="bandh" style={{ left: fb * 100 + '%' }} /></>}
+      <span className="far">far</span><span className="near">near</span>
+    </div>
+  )
+}
+/* why lens blur is not at full quality here, if it is not: no WebGPU (checked up front), or what happened on this photo */
+const GPU_WHY: Record<string, string> = {
+  insecure: 'WebGPU needs a secure page, so lens blur runs on the CPU here: slower, and without the subject model, so subject edges are softer. Open Autochrome on https:// or localhost.',
+  nogpu: 'This browser has no WebGPU, so lens blur runs on the CPU: slower, and without the subject model, so subject edges are softer. Chrome, Edge and Arc have WebGPU.',
+  noadapter: 'WebGPU is turned off or not supported by this graphics card, so lens blur runs on the CPU: slower, and without the subject model, so subject edges are softer.',
+  nof16: 'This graphics card’s WebGPU has no 16-bit floats, which the models need, so lens blur runs on the CPU: slower, and without the subject model, so subject edges are softer.',
+}
+function GpuWarning({ d }: { d?: A.Photo['depth'] }) {
+  const [gpu, setGpu] = useState<GpuCheck | null>(null)
+  useEffect(() => { checkWebGpu().then(setGpu) }, [])
+  let text = ''
+  if (gpu && !gpu.ok) text = GPU_WHY[gpu.why]
+  else if (d?.ep === 'wasm') text = 'WebGPU failed on this photo, so it was analysed on the CPU with depth alone: subject edges are softer. Reload the page to try WebGPU again.'
+  else if (d?.subjectError) text = 'The subject model could not run on this photo, so this is depth alone: subject edges are softer.'
+  return text ? <p className="dofwarn" role="status"><Icon name="clip" size={14} /><span>{text}</span></p> : null
+}
+function LensBlur() {
+  useTopic('status'); const p = cur(), s = curS(), d = p?.depth, st = A.depthStatus, on = s.lensBlur > 0
+  const running = p?.depthState === 'run', mb = (x = 0) => Math.round(x / 1e6)
+  let msg = ''
+  if (p?.depthState === 'error') msg = 'Could not find depth: ' + p.depthErr
+  else if (running) msg = st.phase === 'download' ? `Downloading the ${st.label} model, ${mb(st.loaded)} of ${mb(st.total)} MB. Only the first time.` : st.phase === 'prepare' ? `Starting ${st.label}…` : st.phase === 'analyse' ? `${st.label}…` : 'Finding depth…'
+  else if (d) msg = (d.area ? 'Subject found. ' : `No clear subject, so focused on ${p!.stats?.faces?.length ? 'the nearest face' : 'the centre'}. `)
+  else msg = 'Set an amount and the subject and the depth of the scene are found on this computer.'
+  return (
+    <Section {...sec('dof', 'Lens blur')} extra={<span className="hint">{running ? 'analysing…' : d ? (p!.focus ? 'focus picked' : 'focus on subject') : ''}</span>}>
+      <Adj k="lensBlur" label="Blur amount" min={0} max={100} />
+      <GpuWarning d={d} />
+      {running && st.phase === 'download' && <div className="bar slim"><i style={{ transform: `scaleX(${st.total ? (st.loaded || 0) / st.total : 0})` }} /></div>}
+      <div className="sub"><span>Focus</span>
+        <span className="subacts">
+          <button className={'mini' + (S.tool === 'focus' ? ' on' : '')} title="Click the photo to choose what is in focus (B)" disabled={!d} onClick={() => A.setTool(S.tool === 'focus' ? 'select' : 'focus')}><Icon name="focus" size={14} /></button>
+          <button className="mini txt" title="Focus on the subject again" disabled={!p?.focus} onClick={A.autoFocus}>Subject</button>
+        </span>
+      </div>
+      <DepthBar />
+      <Adj k="focusRange" label="Focal range" min={0} max={100} />
+      <div className="sub"><span>Bokeh</span></div>
+      <div className="bokeh" role="radiogroup" aria-label="Bokeh shape">
+        {BOKEH.map((n, i) => <button key={n} role="radio" aria-checked={Math.round(s.bokehShape) === i} className={(Math.round(s.bokehShape) === i ? 'on' : '') + (isOv('bokehShape') ? ' ov' : '')} title={n}
+          onClick={() => { setVal('bokehShape', i); commit('Bokeh: ' + n) }}><BokehGlyph i={i} /><span>{n}</span></button>)}
+      </div>
+      <Adj k="bokehBoost" label="Boost" min={0} max={100} />
+      <label className="chk depthchk"><input type="checkbox" checked={S.showDepth} onChange={e => A.setShowDepth(e.target.checked)} /> Visualize depth <span className="hint">(D)</span></label>
+      <p className="note">{msg}{p?.depthState === 'error' && <> <button className="linkbtn" onClick={() => A.retryDepth(p)}>Try again</button></>}</p>
+      {!on && !d && !running && <p className="note">Two models do this, Depth Anything V2 and BEN2 (270 MB, downloaded once). Your photos never leave this computer.</p>}
+    </Section>
+  )
+}
+
 function Masks() {
   const p = cur(), i = S.maskSel, m = p?.masks[i]
   const adj = (k: string, label: string, min: number, max: number, step = 1, cls?: string) => <Slider label={label} value={m.adj[k]} min={min} max={max} step={step} cls={cls} onChange={v => { m.adj[k] = v; A.touchMask() }} onCommit={() => commit('Mask ' + label.toLowerCase(), 'mask' + k)} />
@@ -209,13 +346,18 @@ function CropPanel() {
 }
 
 export function Right() {
-  useTopic('panel', 'status'); const s = curS(), p = cur(), nOv = p ? Object.keys(p.ov).length : 0, n = S.photos.length
+  useTopic('panel', 'status', 'film'); const s = curS(), p = cur(), nOv = p ? Object.keys(p.ov).length : 0, n = S.photos.length
+  const sc = A.sceneOf(p), scs = A.targetScenes(), nSc = sc ? Object.keys(sc.ov).length : 0, withScenes = !!sc && S.scenes.length > 1
+  const scopes: ['project' | 'scene' | 'photo', string][] = [['project', 'All photos'], ...(withScenes ? [['scene', scs.length > 1 ? `${scs.length} scenes` : sc!.name] as ['scene', string]] : []), ['photo', S.multi.size > 1 ? `${S.multi.size} selected` : 'This photo']]
+  const own = [nSc && withScenes ? `its scene has ${nSc}` : '', nOv ? `this photo has ${nOv}` : ''].filter(Boolean).join(' and ')
   return (
     <aside id="right">
       <Histogram />
       <div className="scope">
-        <Seg accent={S.scope === 'photo'} value={S.scope} options={[['project', 'All photos'], ['photo', S.multi.size > 1 ? `${S.multi.size} selected` : 'This photo']]} onChange={A.setScope} />
-        <p>{S.scope === 'project' ? (nOv ? `Sliders edit the whole shoot. This photo has ${nOv} of its own (orange dots).` : 'Sliders edit every photo in the shoot.') : 'Sliders edit only the selected photos. Orange marks a difference from the shoot.'}</p>
+        <Seg accent={S.scope !== 'project'} value={S.scope} options={scopes} onChange={A.setScope} />
+        <p>{S.scope === 'project' ? (own ? `Sliders edit the whole shoot; ${own} of its own (dots).` : 'Sliders edit every photo in the shoot.')
+          : S.scope === 'scene' ? `Sliders edit every photo in ${scs.length > 1 ? `${scs.length} scenes` : `${sc?.name} (${sc ? A.scenePhotos(sc).length : 0} photos)`}, on top of the shoot. Blue marks a difference from the shoot.`
+          : `Sliders edit only the selected photos. Orange marks a difference from ${withScenes ? 'the scene' : 'the shoot'}.`}</p>
       </div>
       <div className="scroll">
         <Section id="auto" title="Auto">
@@ -224,7 +366,7 @@ export function Right() {
           <p className="note">{!n ? 'Open a folder to begin.' : S.analysed < n ? `Metering ${S.analysed} of ${n}…` : `${n} photo${n === 1 ? '' : 's'} metered` + (S.checked < n ? ` · checking faces ${S.checked}/${n}` : ' · faces checked')}</p>
         </Section>
         <Styles />
-        <Section {...sec('basic', 'Basic')}>
+        <Section {...sec('basic', 'Basic')} extra={<button className="mini txt autobtn" title="Set every Basic control automatically. Each control also has its own auto: the A on hover, or Shift+double-click." onClick={e => { e.stopPropagation(); A.autoBasic() }}>Auto</button>}>
           <div className="sub"><span>Treatment</span><Seg value={s.bw ? 1 : 0} options={[[0, 'Colour'], [1, 'Black & white']]} onChange={v => { setVal('bw', v); commit(v ? 'Black & white' : 'Colour') }} /></div>
           <WhiteBalance />
           <div className="sub"><span>Tone</span></div>
@@ -241,6 +383,7 @@ export function Right() {
         <Section {...sec('faces', 'Faces')}>
           <Adj k="faceLight" label="Face light" min={-50} max={100} /><Adj k="skinProtect" label="Protect skin" min={0} max={100} />
           <p className="note">{p?.stats ? `${p.stats.faces.length} face${p.stats.faces.length === 1 ? '' : 's'} found in this photo. ` : ''}Face light lifts faces a touch; Protect skin keeps colour boosts from turning them red or orange.</p>
+          <Glasses />
         </Section>
         <Section {...sec('detail', 'Detail')}>
           <Adj k="sharpen" label="Sharpening" min={0} max={100} /><Adj k="nrLuma" label="Noise reduction" min={0} max={100} /><Adj k="nrColor" label="Colour noise" min={0} max={100} />
@@ -249,6 +392,7 @@ export function Right() {
         <Section {...sec('effects', 'Effects')}>
           <Adj k="vignette" label="Vignette" /><Adj k="grain" label="Grain" min={0} max={100} /><Adj k="fade" label="Fade" min={0} max={100} />
         </Section>
+        <LensBlur />
         <Masks />
         <CropPanel />
       </div>

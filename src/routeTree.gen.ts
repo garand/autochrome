@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiLutsRouteImport } from './routes/api/luts'
+import { Route as ApiModelRouteImport } from './routes/api/model'
 import { Route as ApiSampleRouteImport } from './routes/api/sample'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const ApiLutsRoute = ApiLutsRouteImport.update({
   path: '/api/luts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiModelRoute = ApiModelRouteImport.update({
+  id: '/api/model',
+  path: '/api/model',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSampleRoute = ApiSampleRouteImport.update({
   id: '/api/sample',
   path: '/api/sample',
@@ -32,30 +38,34 @@ const ApiSampleRoute = ApiSampleRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/luts': typeof ApiLutsRoute
+  '/api/model': typeof ApiModelRoute
   '/api/sample': typeof ApiSampleRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/luts': typeof ApiLutsRoute
+  '/api/model': typeof ApiModelRoute
   '/api/sample': typeof ApiSampleRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/luts': typeof ApiLutsRoute
+  '/api/model': typeof ApiModelRoute
   '/api/sample': typeof ApiSampleRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/luts' | '/api/sample'
+  fullPaths: '/' | '/api/luts' | '/api/model' | '/api/sample'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/luts' | '/api/sample'
-  id: '__root__' | '/' | '/api/luts' | '/api/sample'
+  to: '/' | '/api/luts' | '/api/model' | '/api/sample'
+  id: '__root__' | '/' | '/api/luts' | '/api/model' | '/api/sample'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiLutsRoute: typeof ApiLutsRoute
+  ApiModelRoute: typeof ApiModelRoute
   ApiSampleRoute: typeof ApiSampleRoute
 }
 
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLutsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/model': {
+      id: '/api/model'
+      path: '/api/model'
+      fullPath: '/api/model'
+      preLoaderRoute: typeof ApiModelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/sample': {
       id: '/api/sample'
       path: '/api/sample'
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiLutsRoute: ApiLutsRoute,
+  ApiModelRoute: ApiModelRoute,
   ApiSampleRoute: ApiSampleRoute,
 }
 export const routeTree = rootRouteImport

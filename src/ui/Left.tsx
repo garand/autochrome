@@ -11,6 +11,34 @@ function History() {
   )
 }
 
+/* the spot this photo was taken at: rename it, edit it as a whole, move photos between spots */
+function SceneInfo() {
+  const p = cur(), sc = A.sceneOf(p); if (!p || !sc) return null
+  const list = A.scenePhotos(sc), n = list.length, edits = Object.keys(sc.ov).length, sel = S.multi.size, many = S.scenes.length > 1
+  return (
+    <Section id="scene" title="Scene" extra={<button className="mini txt" title="Group the whole shoot into scenes again. Scenes keep their names and adjustments where they can." onClick={e => { e.stopPropagation(); A.findScenes(true) }}>Regroup</button>}>
+      <input key={sc.id + sc.name} className="textbox scname" defaultValue={sc.name} aria-label="Scene name" spellCheck={false}
+        onBlur={e => A.renameScene(sc.id, e.target.value)} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') { (e.target as HTMLInputElement).value = sc.name; (e.target as HTMLInputElement).blur() } }} />
+      <p className="note">{n} photo{n === 1 ? '' : 's'} · {edits ? `${edits} adjustment${edits === 1 ? '' : 's'} of its own` : 'follows the shoot'}{many ? '' : '. Every photo looks like one spot so far.'}</p>
+      <div className="btnrow">
+        {many && <button className={'btn' + (S.scope === 'scene' ? ' primary' : '')} onClick={() => A.setScope(S.scope === 'scene' ? 'project' : 'scene')} title="Sliders edit every photo of this scene (S cycles shoot, scene, photo)">{S.scope === 'scene' ? 'Editing scene' : 'Edit scene'}</button>}
+        <button className="btn" onClick={() => A.selectScene(sc.id)} disabled={n < 2 || (sel === n && list.every(q => S.multi.has(q.name)))}>Select all {n}</button>
+      </div>
+      <div className="btnrow">
+        <select className="sel grow" value="" onChange={e => { if (e.target.value) A.moveToScene(e.target.value) }} aria-label="Move to scene">
+          <option value="" disabled>Move {sel > 1 ? `${sel} selected` : 'this photo'} to…</option>
+          {S.scenes.filter(s => s !== sc).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          <option value="new">A new scene</option>
+        </select>
+      </div>
+      <div className="btnrow">
+        <button className="btn" onClick={A.promoteScene} disabled={!Object.keys(p.ov).length} title="Use this photo's own adjustments for every photo of this scene">Make scene look</button>
+        {edits > 0 && <button className="btn" onClick={A.resetScene} title="Drop this scene's adjustments so it follows the shoot">Reset scene</button>}
+      </div>
+    </Section>
+  )
+}
+
 const Tick = ({ ok, label }: { ok?: boolean; label: string }) => <span className={'tick ' + (ok == null ? 'na' : ok ? 'ok' : 'bad')} title={label}>{label}</span>
 function Info() {
   const p = cur(); if (!p) return null
@@ -40,5 +68,5 @@ function Info() {
 
 export function Left() {
   useTopic('left', 'history', 'panel', 'film')
-  return <aside id="left"><div className="scroll"><Info /><History /></div></aside>
+  return <aside id="left"><div className="scroll"><Info /><SceneInfo /><History /></div></aside>
 }

@@ -5,6 +5,7 @@ import factory from 'libraw-wasm-nothread/dist/libraw.js'
 import { unpackCascade, runCascade, clusterDetections } from './pico'
 import { colorInfoFromLibRaw } from './wb'
 let lr: any = null, classify: any = null
+const FACE_CROP = 384   // keep in step with faces.ts
 const HALF = new Uint16Array(65536); // linear uint16 (0..65535 => 0..1) -> IEEE half-float bits
 (() => {
   const f = new Float32Array(1), u = new Uint32Array(f.buffer);
@@ -126,8 +127,9 @@ function faceData(px: Uint16Array, w: number, h: number, f: any) {
   let s1 = 0, s2 = 0, m = 0
   for (let j = 1; j < n - 1; j++) for (let i = 1; i < n - 1; i++) { const k = j * n + i, d = 4 * L[k] - L[k - 1] - L[k + 1] - L[k - n] - L[k + n]; s1 += d; s2 += d * d; m++ }
   f.sharp = Math.round((s2 / m - (s1 / m) ** 2) * 1e5) / 10; f.px = Math.round(size)
-  // crop for landmarks: 2x the face box -> 192px sRGB
-  const N = 192, side = size * 2, k = Math.max(1, Math.floor(side / N)), out = new Uint8ClampedArray(N * N * 4), g = 0.9 / p95
+  // crop for landmarks: 2x the face box -> 384px sRGB (the face mesh is happy with any size; the glasses fix needs the detail)
+  const N = FACE_CROP, side = size * 2, k = Math.max(1, Math.floor(side / N)), out = new Uint8ClampedArray(N * N * 4), g = 0.9 / p95
+  f.cg = 65535 * g   // crop linear value per unit of image linear value (the glasses fix measures on this crop)
   for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
     const sx = cx - side / 2 + (i + 0.5) * side / N, sy = cy - side * 0.5 + (j + 0.5) * side / N; let r = 0, gg = 0, b = 0
     for (let a = 0; a < k; a++) for (let c = 0; c < k; c++) { const q = (Math.min(h - 1, Math.max(0, (sy + a) | 0)) * w + Math.min(w - 1, Math.max(0, (sx + c) | 0))) * 3; r += px[q]; gg += px[q + 1]; b += px[q + 2] }

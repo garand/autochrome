@@ -4,6 +4,8 @@ import { S, cur, useTopic } from '../app/store'
 import { LABELS } from '../engine/core'
 import { PIXLS, SAMPLES, SAMPLE_KINDS, type Sample } from '../samples'
 import { Icon, IconBtn, Seg } from './widgets'
+import { isBoardDrag } from './SceneBoard'
+import { lastSession, type Session } from '../app/sessions'
 
 /* crop rectangle, shown while the crop tool is active (the canvas then shows the whole frame) */
 function CropOverlay() {
@@ -17,6 +19,14 @@ function CropOverlay() {
       <b className="g v1" /><b className="g v2" /><b className="g h1" /><b className="g h2" />
     </div>
   )
+}
+
+/* lens blur: where the focus is, while choosing it or looking at the depth map */
+function FocusMark() {
+  const p = cur()!, d = p.depth, uv = p.focus ? p.focus.uv : d?.focusUV
+  if (!d || !uv) return null
+  const [x, y] = A.uvToScreen(uv[0], uv[1])
+  return <svg className="focusmark" width={S.lay.cssW} height={S.lay.cssH} aria-hidden><g transform={`translate(${x} ${y})`}><circle r="15" /><path d="M0 -24v8M0 16v8M-24 0h8M16 0h8" /></g></svg>
 }
 
 /* gradient handles for the selected mask, pins for the others */
@@ -91,6 +101,59 @@ function Samples({ busy, run }: { busy: boolean; run: (f: () => Promise<unknown>
   )
 }
 
+const ago = (t: number) => {
+  const m = Math.round((Date.now() - t) / 60000)
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 60 * 24 ? `${Math.round(m / 60)} h ago` : m < 60 * 24 * 14 ? `${Math.round(m / 1440)} days ago` : new Date(t).toLocaleDateString([], { dateStyle: 'medium' })
+}
+const facts = (s: Session) => [`${s.count} photo${s.count === 1 ? '' : 's'}`, s.picks ? `${s.picks} picked` : '', s.scenes > 1 ? `${s.scenes} scenes` : '', ago(s.at)].filter(Boolean).join(' · ')
+function Cover({ s }: { s: Session }) {
+  const [url, setUrl] = useState('')
+  useEffect(() => { if (!s.cover) return; const u = URL.createObjectURL(s.cover); setUrl(u); return () => URL.revokeObjectURL(u) }, [s.cover])
+  return url ? <img src={url} alt="" /> : <span className="nocover"><Icon name={s.kind === 'handle' ? 'folder' : 'grid'} size={16} /></span>
+}
+let autoTried = false
+/* Shoots opened before in this browser. The last one reopens by itself; a folder whose access the browser has
+   forgotten waits for a click on Continue, which lets the browser ask for it again. */
+function Recent({ busy, run }: { busy: boolean; run: (f: () => Promise<unknown>) => void }) {
+  const [list, setList] = useState<Session[]>([]), [ask, setAsk] = useState<Session | null>(null), [trying, setTrying] = useState(() => !autoTried && !!lastSession())
+  const refresh = () => A.listSessions().then(setList)
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      if (!autoTried) { autoTried = true; if (lastSession()) { await A.boot(); const pending = await A.resumeLast(); if (!alive) return; setAsk(pending) } }
+      if (alive) { setTrying(false); refresh() }
+    })()
+    return () => { alive = false }
+  }, [])
+  const open = (s: Session) => run(async () => { if ((await A.resumeSession(s.id, true)) === 'ask') throw new Error(`Allow access to “${s.title}” to continue.`) })
+  const forget = (s: Session) => { A.forgetSession(s.id).then(refresh); if (ask?.id === s.id) setAsk(null) }
+  if (trying) return <p className="note resuming">Reopening your last shoot…</p>
+  const rest = list.filter(s => s.id !== ask?.id).slice(0, 6)
+  return (
+    <>
+      {ask && (
+        <div className="resume">
+          <Cover s={ask} />
+          <div className="rtext"><b>Continue where you left off</b><span>{ask.title} · {facts(ask)}</span></div>
+          <button className="btn primary" disabled={busy} onClick={() => open(ask)}>Continue</button>
+        </div>
+      )}
+      {rest.length > 0 && (
+        <div className="recent">
+          <div className="samplehead"><span>Recent</span></div>
+          <ul>{rest.map(s => (
+            <li key={s.id}>
+              <button className="ropen" disabled={busy} onClick={() => open(s)} title={s.kind === 'handle' ? 'Reopen this folder with your edits' : 'Reopen these samples with your edits'}>
+                <Cover s={s} /><span className="rtext"><b>{s.title}</b><span>{facts(s)}</span></span>
+              </button>
+              <button className="mini" title="Forget this shoot here. Edits saved in the folder itself stay there." onClick={() => forget(s)}><Icon name="reject" size={12} /></button>
+            </li>))}</ul>
+        </div>
+      )}
+    </>
+  )
+}
+
 /* Everything is read by the browser from the viewer's own computer, so this works the same locally and on a server. */
 function OpenPanel() {
   const [err, setErr] = useState(''), [busy, setBusy] = useState(false), file = useRef<HTMLInputElement>(null), folder = useRef<HTMLInputElement>(null)
@@ -110,6 +173,7 @@ function OpenPanel() {
         <p className="note">{A.canPickFolder() ? 'Your edits are saved into the folder, and exports can go straight back into it.'
           : !window.isSecureContext ? 'On this address, edits are saved in this browser and exports download as a .zip. Open Autochrome over https:// or localhost to save straight into the folder.'
           : 'In this browser, edits are saved here and exports download as a .zip. Chrome, Edge and Arc can also save straight into the folder.'}</p>
+        <Recent busy={busy} run={run} />
         <Samples busy={busy} run={run} />
         <input ref={file} type="file" multiple hidden onChange={e => { if (e.target.files?.length) run(() => A.addFiles(e.target.files!)); e.target.value = '' }} />
         <input ref={folder} type="file" hidden {...{ webkitdirectory: '' }} onChange={e => { if (e.target.files?.length) { const f = e.target.files; run(() => A.openFolderFiles(f)) } e.target.value = '' }} />
@@ -120,15 +184,16 @@ function OpenPanel() {
 
 export function Toolbar() {
   useTopic('view', 'film', 'status'); const p = cur(), z = S.zoom, tool = (t: typeof S.tool) => () => A.setTool(S.tool === t ? 'select' : t)
-  const msg = S.flash || (S.busy ? 'Developing…' : S.tool === 'wb' ? 'Click something that should be neutral grey' : S.tool === 'linear' || S.tool === 'radial' ? 'Drag on the photo to place a gradient' : S.tool === 'crop' ? 'Drag the frame, Enter when done' : '')
+  const msg = S.flash || (S.busy ? 'Developing…' : S.tool === 'wb' ? 'Click something that should be neutral grey' : S.tool === 'linear' || S.tool === 'radial' ? 'Drag on the photo to place a gradient' : S.tool === 'crop' ? 'Drag the frame, Enter when done' : S.tool === 'focus' ? 'Click what should be in focus' : '')
   return (
     <div id="toolbar">
-      {!S.grid && !S.faces && <div className="grp">
+      {!S.grid && !S.faces && !S.board && <div className="grp">
         <IconBtn icon="hand" title="Pan and zoom (V)" on={S.tool === 'select'} onClick={() => A.setTool('select')} />
         <IconBtn icon="crop" title="Crop and straighten (R)" on={S.tool === 'crop'} onClick={tool('crop')} />
         <IconBtn icon="dropper" title="White balance picker (W)" on={S.tool === 'wb'} onClick={tool('wb')} />
         <IconBtn icon="linear" title="Linear gradient mask (M)" on={S.tool === 'linear'} onClick={tool('linear')} />
         <IconBtn icon="radial" title="Radial gradient mask (Shift+M)" on={S.tool === 'radial'} onClick={tool('radial')} />
+        {p && (A.eff(p).lensBlur > 0 || S.tool === 'focus') && <IconBtn icon="focus" title="Lens blur focus: click what should be sharp (B)" on={S.tool === 'focus'} onClick={tool('focus')} disabled={!p.depth} />}
       </div>}
       <div className="grp">
         <IconBtn icon="flag" title="Pick (P)" on={p?.flag === 1} onClick={() => A.setFlag(1)} data-tone="ok" />
@@ -141,7 +206,7 @@ export function Toolbar() {
       {/* keyed on the text so each new message fades in instead of swapping abruptly */}
       {msg && <span className="msg" key={msg}>{msg}</span>}
       <div className="grp">
-        {!S.grid && !S.faces && <>
+        {!S.grid && !S.faces && !S.board && <>
         <IconBtn icon="clip" title="Clipping warnings (J)" on={S.clip} onClick={() => A.toggle('clip')} />
         <IconBtn icon="compare" title="Hold to see the unedited photo (\)" on={S.before} onPointerDown={() => A.toggle('before', true)} onPointerUp={() => A.toggle('before', false)} onPointerLeave={() => S.before && A.toggle('before', false)} />
         <select className="sel" value={z === 'fit' ? 'fit' : [0.5, 1, 2].includes(z) ? String(z) : 'x'} onChange={e => A.setZoom(e.target.value === 'fit' ? 'fit' : +e.target.value)} title="Zoom (Z toggles fit and 100%)" aria-label="Zoom">
@@ -149,6 +214,7 @@ export function Toolbar() {
         </select>
         </>}
         <IconBtn icon="face" title="Face sheet: every face in this burst, side by side (F)" on={S.faces} onClick={() => A.toggle('faces')} />
+        <IconBtn icon="scenes" title="Scene board: name scenes and move photos between them (N)" on={S.board} onClick={() => A.toggle('board')} />
         <IconBtn icon="grid" title="Grid view (G)" on={S.grid} onClick={() => A.toggle('grid')} />
         <IconBtn icon="panels" title="Hide or show the side panels (Tab)" on={!S.panels} onClick={() => A.toggle('panels')} />
       </div>
@@ -168,15 +234,15 @@ export function Viewer() {
   const up = (e: React.PointerEvent) => {
     const d = drag.current; drag.current = null; if (!d || d.moved || !S.lay) return
     const b = canvas.current!.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top; if (x < 0 || y < 0 || x > b.width || y > b.height) return
-    if (S.tool === 'wb') A.pickWB(x, y); else if (S.tool === 'select') A.setZoom(S.zoom === 'fit' ? 1 : 'fit', { x, y })
+    if (S.tool === 'wb') A.pickWB(x, y); else if (S.tool === 'focus') A.pickFocus(x, y); else if (S.tool === 'select') A.setZoom(S.zoom === 'fit' ? 1 : 'fit', { x, y })
   }
   const p = cur(), has = S.photos.length > 0
   return (
     <div id="viewer" ref={box} className={'tool-' + S.tool + (S.zoom !== 'fit' ? ' zoomed' : '') + (over ? ' over' : '')} onPointerDown={down} onPointerMove={move} onPointerUp={up}
-      onDragOver={e => { e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)} onDrop={e => { setOver(false); A.handleDrop(e.nativeEvent) }}>
+      onDragOver={e => { if (isBoardDrag(e)) return; e.preventDefault(); setOver(true) }} onDragLeave={() => setOver(false)} onDrop={e => { setOver(false); if (!isBoardDrag(e)) A.handleDrop(e.nativeEvent) }}>
       <div id="wrap" style={{ visibility: has ? 'visible' : 'hidden' }}>
         <canvas id="view" ref={canvas} />
-        {p && S.lay && <div id="ov" style={{ width: S.lay.cssW, height: S.lay.cssH }}>{S.tool === 'crop' ? <CropOverlay /> : S.tool === 'linear' || S.tool === 'radial' ? <MaskOverlay /> : null}</div>}
+        {p && S.lay && <div id="ov" style={{ width: S.lay.cssW, height: S.lay.cssH }}>{S.tool === 'crop' ? <CropOverlay /> : S.tool === 'linear' || S.tool === 'radial' ? <MaskOverlay /> : S.tool === 'focus' || S.showDepth ? <FocusMark /> : null}</div>}
       </div>
       {!has && <OpenPanel />}
       {over && <div className="dropmsg">Drop to open</div>}

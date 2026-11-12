@@ -17,6 +17,7 @@
     "@vladmandic/human": "^3.3.6",
     "libraw-wasm-nothread": "^1.6.0-nothread.1",
     "nitro": "3.0.260610-beta",
+    "onnxruntime-web": "^1.31.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

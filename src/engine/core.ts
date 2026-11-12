@@ -44,7 +44,8 @@ export const DEF = {
   texture: 0, clarity: 0, dehaze: 0, vibrance: 0, saturation: 0,
   curve: { m: ID_CURVE, r: ID_CURVE, g: ID_CURVE, b: ID_CURVE },
   gShHue: 0, gShSat: 0, gMidHue: 0, gMidSat: 0, gHiHue: 0, gHiSat: 0, gBalance: 0,
-  sharpen: 25, nrLuma: 0, nrColor: 0, vignette: 0, grain: 0, fade: 0, faceLight: 0, skinProtect: 50,
+  lensBlur: 0, bokehShape: 0, bokehBoost: 40, focusRange: 10,   // lens blur: amount 0 = off; bokehShape indexes BOKEH in gl.ts
+  sharpen: 25, nrLuma: 0, nrColor: 0, vignette: 0, grain: 0, fade: 0, faceLight: 0, skinProtect: 50, glasses: 100,
 };
 for (const [n] of HSL) { DEF['h_' + n] = 0; DEF['s_' + n] = 0; DEF['l_' + n] = 0; }
 export const KEYS = {
@@ -52,7 +53,8 @@ export const KEYS = {
   basic: ['bw', 'temp', 'tint', 'exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks', 'texture', 'clarity', 'dehaze', 'vibrance', 'saturation'],
   curve: ['curve'], mixer: HSL.flatMap(([n]) => ['h_' + n, 's_' + n, 'l_' + n]),
   grade: ['gShHue', 'gShSat', 'gMidHue', 'gMidSat', 'gHiHue', 'gHiSat', 'gBalance'],
-  detail: ['sharpen', 'nrLuma', 'nrColor'], effects: ['vignette', 'grain', 'fade'], faces: ['faceLight', 'skinProtect'],
+  dof: ['lensBlur', 'bokehShape', 'bokehBoost', 'focusRange'],
+  detail: ['sharpen', 'nrLuma', 'nrColor'], effects: ['vignette', 'grain', 'fade'], faces: ['faceLight', 'skinProtect', 'glasses'],
 };
 export const MASK_ADJ = { exposure: 0, contrast: 0, saturation: 0, temp: 0, tint: 0 };
 export const PRESETS = {
@@ -64,6 +66,13 @@ export const PRESETS = {
   'Soft matte': { look: 'matte', contrast: -8, clarity: -10, vignette: 10 },
   'Punchy colour': { look: 'ektar', contrast: 10, clarity: 12, vibrance: 15 },
   'Timeless B&W': { look: 'trix', grain: 35, vignette: 18, clarity: 10 },
+  // fitted to a finished edit of a sunlit autumn-woods family portrait: warm, deep shadows, golden foliage
+  'Krafft Fall': {
+    temp: 51, tint: -24, exposure: 0.4, contrast: 38, highlights: -7, shadows: -52, whites: 17, blacks: -58, faceLight: 4,
+    h_orange: -7, l_orange: 13, h_yellow: -26, s_yellow: 6, l_yellow: 19, h_green: -4, s_green: -4, l_green: -4, s_aqua: -9, l_aqua: 4,
+    l_blue: -4, l_purple: -6, h_magenta: 4, s_magenta: 8, l_magenta: -15,
+    gShHue: 180, gShSat: 8, gMidHue: 108, gMidSat: 8, gHiHue: 270, gHiSat: 6,
+  },
 };
 export const LABELS = [null, '#e5484d', '#f2d43d', '#46a758', '#3e7bfa'];
 
@@ -129,6 +138,8 @@ export const getLut = id => { if (!lutCache.has(id)) { const L = LOOKS.find(l =>
 
 /* ============================================================ icons (16px stroke) */
 export const ICONS = {
+  scenes: 'M5 2.5h8.5v7H5zM2.5 5v8.5H11',
+  focus: 'M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3M8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z', depth: 'M1.5 12.5 6 5l3 4.5 1.8-2.6 3.7 5.6zM11 3.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6z',
   face: 'M8 2.2a5.8 5.8 0 1 0 0 11.6A5.8 5.8 0 0 0 8 2.2zM6 6.6v.6M10 6.6v.6M5.6 9.8c1.3 1.2 3.5 1.2 4.8 0', advance: 'M2.5 8h7.5M7 4.8 10.2 8 7 11.2M13.2 4v8',
   folder: 'M1.5 4.5v8h13v-7h-6l-1.5-2h-5.5z', plus: 'M8 3v10M3 8h10', undo: 'M5.5 3.5 2.5 6.5l3 3M2.5 6.5h7a4 4 0 0 1 0 8h-3', redo: 'M10.5 3.5l3 3-3 3M13.5 6.5h-7a4 4 0 0 0 0 8h3',
   hand: 'M5.5 8V3.5a1 1 0 0 1 2 0V7m0-4.5a1 1 0 0 1 2 0V7m0-3.5a1 1 0 0 1 2 0V8m0-2.5a1 1 0 0 1 2 0v4.5a4.5 4.5 0 0 1-9 0V8.5l-1.6-1.3a1 1 0 0 1 1.3-1.5l1.3 1.3',

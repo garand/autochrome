@@ -13,7 +13,7 @@ import { DEF, ID_CURVE, LOOKS, PRESETS, clone, curveIsId, eq } from './core'
 export interface Style { id: string; name: string; cat: string; sub?: string; sw?: string; look?: string; lookAmount?: number; finish: Record<string, any>; user?: boolean }
 
 export const RECIPES = 'Recipes', YOURS = 'Yours'
-const NOT_FINISH = new Set(['look', 'lookAmount', 'style', 'styleAmount'])
+const NOT_FINISH = new Set(['look', 'lookAmount', 'style', 'styleAmount', 'glasses', 'lensBlur', 'bokehShape', 'bokehBoost', 'focusRange'])   // glasses and lens blur: about who and what is in the photo, not a style
 
 const recipeStyles = (): Style[] => Object.entries(PRESETS as Record<string, any>).filter(([n]) => n !== 'Neutral').map(([name, p]) => {
   const { look, lookAmount, ...finish } = p

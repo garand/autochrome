@@ -7,6 +7,7 @@ import { Right } from './Right'
 import { StyleBrowser } from './StyleBrowser'
 import { Toolbar, Viewer } from './Viewer'
 import { FaceSheet } from './FaceSheet'
+import { SceneBoard, isBoardDrag } from './SceneBoard'
 import { Icon, IconBtn, Modal } from './widgets'
 
 function ExportDialog({ onClose }: { onClose: () => void }) {
@@ -53,7 +54,7 @@ function CullDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-const KEYS: [string, string][] = [['← →', 'Previous / next photo'], ['P · X · U', 'Pick · reject · unflag'], ['1–5 · 0', 'Star rating · clear'], ['6–9', 'Colour label'], ['S', 'Switch all photos / this photo'], ['L', 'Browse styles'], ['G', 'Grid view'], ['F', 'Face sheet (↑ ↓ frames)'], ['Z', 'Fit / 100%'], ['\\', 'Before (hold)'], ['J', 'Clipping warnings'], ['R', 'Crop'], ['W', 'White balance picker'], ['M · ⇧M', 'Linear · radial mask'], ['O', 'Mask overlay'], ['⌘[ · ⌘]', 'Rotate'], ['⌘Z · ⇧⌘Z', 'Undo · redo'], ['⌘C · ⌘V', 'Copy · paste adjustments'], ['⌘A', 'Select all'], ['⌘E', 'Export'], ['Tab', 'Hide panels'], ['scroll · drag', 'Zoom · pan'], ['double-click', 'Reset a slider']]
+const KEYS: [string, string][] = [['← →', 'Previous / next photo'], ['P · X · U', 'Pick · reject · unflag'], ['1–5 · 0', 'Star rating · clear'], ['6–9', 'Colour label'], ['S', 'Edit all photos · this scene · this photo'], ['L', 'Browse styles'], ['G', 'Grid view'], ['F', 'Face sheet (↑ ↓ frames)'], ['N', 'Scene board: name scenes, move photos'], ['Z', 'Fit / 100%'], ['\\', 'Before (hold)'], ['J', 'Clipping warnings'], ['R', 'Crop'], ['W', 'White balance picker'], ['M · ⇧M', 'Linear · radial mask'], ['O', 'Mask overlay'], ['B', 'Lens blur focus picker'], ['D', 'Visualize depth'], ['⌘[ · ⌘]', 'Rotate'], ['⌘Z · ⇧⌘Z', 'Undo · redo'], ['⌘C · ⌘V', 'Copy · paste adjustments'], ['⌘A', 'Select all'], ['⌘E', 'Export'], ['Tab', 'Hide panels'], ['scroll · drag', 'Zoom · pan'], ['double-click', 'Reset a slider']]
 
 export default function Editor() {
   useTopic('view', 'status'); const [modal, setModal] = useState<null | 'export' | 'cull' | 'keys'>(null), [ready, setReady] = useState(false), [err, setErr] = useState('')
@@ -73,26 +74,27 @@ export default function Editor() {
       const l = k.toLowerCase()
       if (k === 'ArrowRight' || k === 'ArrowLeft') { if (tag === 'INPUT') return; e.preventDefault(); A.step(k === 'ArrowRight' ? 1 : -1) }
       else if ((k === 'ArrowDown' || k === 'ArrowUp') && S.faces) { e.preventDefault(); A.step(k === 'ArrowDown' ? 1 : -1) }
-      else if (l === 'f') A.toggle('faces')
+      else if (l === 'f') A.toggle('faces'); else if (l === 'n') A.toggle('board')
       else if (l === 'p') A.setFlag(1); else if (l === 'x') A.setFlag(-1); else if (l === 'u') A.setFlag(0)
       else if (k >= '0' && k <= '5') A.setRating(+k); else if (k >= '6' && k <= '9') A.setLabel(+k - 5)
       else if (k === '\\') A.toggle('before', true); else if (l === 'z') A.setZoom(S.zoom === 'fit' ? 1 : 'fit'); else if (l === 'g') A.toggle('grid'); else if (l === 'j') A.toggle('clip'); else if (l === 'o') A.toggle('showMask')
       else if (l === 'r') A.setTool(S.tool === 'crop' ? 'select' : 'crop'); else if (l === 'w') A.setTool(S.tool === 'wb' ? 'select' : 'wb'); else if (l === 'v') A.setTool('select')
       else if (l === 'm') { const want = e.shiftKey ? 'radial' : 'linear'; A.setTool(S.tool === want ? 'select' : want) }
-      else if (l === 's') A.setScope(S.scope === 'project' ? 'photo' : 'project'); else if (l === 'l' && S.cur) { S.browser = 'styles'; A.emit('view') }
+      else if (l === 'b' && S.cur) A.setTool(S.tool === 'focus' ? 'select' : 'focus'); else if (l === 'd' && S.cur) A.setShowDepth(!S.showDepth)
+      else if (l === 's') A.cycleScope(); else if (l === 'l' && S.cur) { S.browser = 'styles'; A.emit('view') }
       else if (k === 'Tab') { e.preventDefault(); A.toggle('panels') } else if (k === '?') setModal('keys')
       else if ((k === 'Delete' || k === 'Backspace') && S.maskSel >= 0 && (S.tool === 'linear' || S.tool === 'radial')) A.removeMask(S.maskSel)
-      else if (k === 'Escape' || k === 'Enter') { if (S.tool !== 'select') A.setTool('select'); else if (S.faces) A.toggle('faces', false); else if (S.grid) A.toggle('grid', false) }
+      else if (k === 'Escape' || k === 'Enter') { if (S.tool !== 'select') A.setTool('select'); else if (S.faces) A.toggle('faces', false); else if (S.board) A.toggle('board', false); else if (S.grid) A.toggle('grid', false) }
     }
     const up = (e: KeyboardEvent) => { if (e.key === '\\') A.toggle('before', false) }
     window.addEventListener('keydown', down); window.addEventListener('keyup', up); return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
   }, [modal])
   const has = S.photos.length > 0
   return (
-    <div id="app" className={(S.grid && has ? 'grid ' : '') + (S.faces && has ? 'sheet ' : '') + (S.panels ? '' : 'nopanels ') + (has ? 'loaded' : '')} onDragOver={e => e.preventDefault()} onDrop={e => { if (!(e.target as HTMLElement).closest('#viewer')) A.handleDrop(e.nativeEvent) }}>
+    <div id="app" className={(S.grid && has ? 'grid ' : '') + (S.faces && has ? 'sheet ' : '') + (S.board && has ? 'board ' : '') + (S.panels ? '' : 'nopanels ') + (has ? 'loaded' : '')} onDragOver={e => e.preventDefault()} onDrop={e => { if (!isBoardDrag(e) && !(e.target as HTMLElement).closest('#viewer')) A.handleDrop(e.nativeEvent) }}>
       <header id="top">
         <div className="brand"><span className="logo" />Autochrome</div>
-        {has && <button className="btn" onClick={() => { if (confirm('Close this shoot? Your edits are saved.')) location.reload() }} title="Open another folder"><Icon name="folder" size={14} /> {S.title}</button>}
+        {has && <button className="btn" onClick={() => { if (confirm('Close this shoot? Your edits are saved, and it stays under Recent on the start screen.')) A.closeShoot() }} title="Open another folder"><Icon name="folder" size={14} /> {S.title}</button>}
         <span className="grow" />
         {err && <span className="err">{err}</span>}
         {!ready && !err && <span className="hint">Starting the raw engine…</span>}
@@ -101,7 +103,7 @@ export default function Editor() {
         {has && <button className="btn primary" onClick={() => setModal('export')}><Icon name="export" size={14} /> Export</button>}
       </header>
       <Left />
-      <main id="center"><Viewer />{S.faces && has && <FaceSheet />}<Toolbar /></main>
+      <main id="center"><Viewer />{S.faces && has && <FaceSheet />}{S.board && has && <SceneBoard />}<Toolbar /></main>
       <Right />
       <Film onAutoCull={() => setModal('cull')} />
       {S.browser && cur() && <StyleBrowser />}
